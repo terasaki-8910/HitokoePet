@@ -40,35 +40,84 @@
 | B7 | 必須キー（`status`, `cwd`, `name`）を欠くJSONを与えたとき、例外を投げずに本機能を無効化して `false` を返す（劣化動作） | Zig unit test |
 | B8 | `~/.claude/sessions/` が存在しない環境で、アプリが起動し既存のフック経路で動作する | 統合テスト（fixture HOME） |
 
-## C. 音声通知（SPEC 3.3）
+## C. 音声通知（SPEC 3.3、`voice/`）
 
-純粋関数 `shouldSpeak(hook_event: []const u8) -> bool` に切り出すこと。
+`app/` とは別成果物。**シェルスクリプトなので判定も shell ベース**（Zig テストではない）。
+`voice/test.sh` に置く。
+
+### C-1. イベント選別
 
 | # | 基準 | 判定 |
 | --- | --- | --- |
-| C1 | `"Stop"` に対して `true` を返す | Zig unit test |
-| C2 | `"SubagentStop"` に対して `false` を返す | Zig unit test |
-| C3 | `"PreToolUse"`, `"PostToolUse"`, `"Notification"`, `"SessionStart"`, `"PreCompact"`, `"UserPromptSubmit"` すべてに対して `false` を返す | Zig unit test |
-| C4 | 未知のイベント名に対して `false` を返す（フェイルクローズ） | Zig unit test |
-| C5 | 音声が無効設定のとき、`Stop` でも音声を再生せず、ペットの状態遷移は従来通り行われる | Zig unit test |
-| C6 | 音声の生成方式が確定していること（`state/AUDIO.md` に決定と根拠が記録されている） | ファイル存在＋内容レビュー |
+| C1 | `hook_event_name == "Stop"` のペイロードで音声再生が発火する | `PLAY_AUDIO_CMD` をスタブに差し替えて呼び出し記録を検査 |
+| C2 | `hook_event_name == "SubagentStop"` で発火しない | 同上 |
+| C3 | `PreToolUse` / `PostToolUse` / `Notification` / `SessionStart` / `PreCompact` / `UserPromptSubmit` すべてで発火しない | 同上 |
+| C4 | 未知のイベント名で発火しない（フェイルクローズ） | 同上 |
+| C5 | **`.type` キーを持つ Codex 形式のペイロードを与えたとき、誤って動作せず、かつ「Claude Code のペイロードではない」と判別できる** | 同上（SPEC 3.3.1 の失敗モード回帰テスト） |
+| C6 | ペイロードが不正なJSONでも exit 0 し、Claude Code 本体を止めない | 終了コード検査 |
+
+### C-2. 環境互換
+
+| # | 基準 | 判定 |
+| --- | --- | --- |
+| C7 | `play_audio` が `afplay` / `pw-play` / `paplay` / `ffplay` / `aplay` の順に探索し、最初に見つかったものを使う | PATH を差し替えた5ケースで検査 |
+| C8 | 再生コマンドが1つも見つからない環境で exit 0 し、何も出力しない（ヘッドレス機での想定動作） | PATH を空にして検査 |
+| C9 | `shellcheck` が警告0で通る | `shellcheck voice/*.sh` |
+| C10 | NixOS 用の `writeShellApplication` 定義の `runtimeInputs` が、スクリプトが実際に呼ぶ外部コマンドを網羅している | スクリプトから抽出したコマンド一覧と突き合わせ |
+
+### C-3. 並列実行
+
+| # | 基準 | 判定 |
+| --- | --- | --- |
+| C11 | 同時に10回起動しても再生が重ならない（`flock` による直列化） | 並列起動してスタブの呼び出し時刻の重なりを検査 |
+| C12 | ロック取得待ちが一定時間を超えたら諦めて exit 0 する（フック起動を滞留させない） | タイムアウト検査 |
+
+### C-4. フォールバック
+
+| # | 基準 | 判定 |
+| --- | --- | --- |
+| C13 | L3（母艦TTS）が応答しないとき、L1 の generic WAV にフォールバックして再生する | 到達不能なURLを指定して検査 |
+| C14 | L3 が応答しないときの追加待ち時間が上限（`--max-time`）を超えない | 実時間計測 |
+| C15 | L2 キャッシュにヒットしたとき、ネットワークアクセスが発生しない | スタブで検査 |
 
 ## D. 口パク（SPEC 3.4）
 
 **着手前ゲート**: `mouth.png` を1体分人手で試作し、192×208 セルで開閉が視認できることを
 確認する。視認できない場合、本セクション全体をスコープから削除する。
 
-純粋関数 `mouthFrame(rms: f32) -> u8` に切り出すこと。
+純粋関数 `mouthFrame(rms: f32) -> u8` に切り出すこと。振幅は**事前計算したエンベロープ**
+（`<name>.env`）から読む。再生中の音声を観測しない（SPEC 3.4）。
 
 | # | 基準 | 判定 |
 | --- | --- | --- |
 | D1 | `mouth.png` を持たないペットを読み込んだとき、エラーにならず口パク無しで描画される | 統合テスト |
-| D2 | `mouth.png` を持たないペットの描画結果が、本機能導入前と同一である | スクリーンショット比較 |
+| D2 | `mouth.png` を持たないペットの描画結果が、本機能導入前と同一である | `native automate screenshot` の比較 |
 | D3 | 無改変の Codex アトラス（8列×9行、1536×1872）が従来通り読める | 統合テスト（既存 fixture） |
 | D4 | `rms` が単調増加するとき `mouthFrame` の返り値が単調非減少である | Zig unit test（プロパティ） |
 | D5 | `rms == 0` で閉口フレーム（`0`）を返す | Zig unit test |
 | D6 | 返り値が常に `0..口形数-1` の範囲に収まる（`rms` に `NaN`, `inf`, 負値を与えても） | Zig unit test |
 | D7 | 発話終了後、口が閉口フレームに戻る | Zig unit test |
+| D8 | 同じ `.env` を2回再生したとき、口形の系列が完全に一致する（決定論性） | Zig unit test |
+| D9 | `.wav` に対応する `.env` が存在しないとき、口パク無しで音声だけ再生される | 統合テスト |
+| D10 | `.env` の長さが `.wav` の再生長と不整合でも範囲外アクセスしない | Zig unit test（境界値） |
+| D11 | `reduce_motion` が有効なとき、口パクのアニメーションが抑制される（design_brief 4項） | Zig unit test |
+| D12 | すべての `voice/` 同梱WAVに対応する `.env` が存在し、内容が現在のWAVから再生成したものと一致する | 生成スクリプトの再実行と diff |
+
+## H. 吹き出しタップでセッションの端末へ移動（SPEC 3.6）
+
+純粋関数 `focusTarget(sessions: []const Session) -> ?Pid` に切り出すこと
+（B の `aggregate` と同一の優先度規則を使う）。
+
+| # | 基準 | 判定 |
+| --- | --- | --- |
+| H1 | `focusTarget` が返す pid が、`aggregate` が状態を採用したセッションの pid と常に一致する | Zig unit test（B と同じ入力集合で照合） |
+| H2 | セッション0件のとき `null` を返し、タップしても何も起きない | Zig unit test |
+| H3 | 吹き出しタップで Effects チャネルに端末フォーカスの spawn 要求が1回だけ出る | fake executor で spawn を検査 |
+| H4 | ペット本体（吹き出しではない）のタップでは spawn が発生しない | fake executor で検査 |
+| H5 | 右クリックのコンテキストメニュー（上流の既存機能）がタップ追加後も従来通り開く | 統合テスト |
+| H6 | 対象 pid が既に終了している場合、spawn せずに何も起きない | Zig unit test |
+| H7 | 対応していない端末エミュレータ環境で、エラーを出さず何も起きない | 統合テスト（spawn を失敗させる） |
+| H8 | pid → tty の解決が、tty を持たない pid（デーモン等）に対して `null` を返す | Zig unit test |
 
 ## E. アイドル時 CPU（SPEC 3.5）
 
@@ -152,4 +201,11 @@ native test app
 
 # E1-E3: アイドル時 CPU 計測（macOS）
 scripts/measure-idle.sh   # criteria 段階で作成
+
+# C: 音声フックの検査（voice/ は shell 成果物なので Zig テストではない）
+voice/test.sh             # criteria 段階で作成
+shellcheck voice/*.sh     # C9
+
+# D2: 口パク導入前後の描画一致（mouth.png 無しのペット）
+native automate screenshot pet-canvas
 ```
