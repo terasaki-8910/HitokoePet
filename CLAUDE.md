@@ -1,7 +1,13 @@
-# Project: <name>
+# Project: CLAUDE CODE PET
 
 ## What this is
-<one-paragraph purpose>. Scope in SPEC.md; pass/fail criteria in ACCEPTANCE.md.
+CLAUDE- claude code petの作成…codex petと同じようなやつ
+    - win,mac,linuxで使いたいのでelectronがよさそう
+    - 複数のセッションを監視したい
+    - つまみモーションも欲しい
+    - codex petと互換性が生まれるものが作りたい.
+    - pixelartディレクトリに示すようなドット絵を動かしたい。細かな作業は私がやるが、できれば自動化したい。
+    Scope in SPEC.md; pass/fail criteria in ACCEPTANCE.md.
 
 ## Workflow
 Driven by scripts/run.sh through gated stages (see pipeline.yaml). Do NOT skip gates.
@@ -9,7 +15,7 @@ Intake proposes per-project tools (MCP/plugins/skills): Claude proposes, I appro
 run state/init-tools.sh myself. Never auto-install or enable tools.
 
 ## Language
-Generated artifacts (code, comments, docs, commit messages, UI copy) default to English.
+Generated artifacts (code, comments, docs, commit messages, UI copy) default to 日本語.
 Change here to override per project. The language I chat in is separate and unaffected.
 
 ## Commands
