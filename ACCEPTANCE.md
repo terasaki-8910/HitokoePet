@@ -97,26 +97,59 @@
 | --- | --- | --- |
 | G1 | 本プロジェクトが追加したソース・UI文字列に絵文字が含まれない | lint（no-emoji） |
 | G2 | 本プロジェクトが追加したコードに色リテラルが直書きされていない。色は `petdexTokens()`（`app/src/main.zig:209`）経由のみ | lint（design-tokens-only） |
-| G3 | 追加した表示要素に `accessibility_label` が設定されている（既存の `"Petdex pet"` に倣う） | lint（a11y） |
+| G3 | `app/app.zon` の全 view 宣言に `accessibility_label` が設定されている（既存の `"Petdex pet"` に倣う） | `app.zon` の構造検査（下記） |
 | G4 | `main.zig` に本プロジェクトが追加した純粋関数（A/B/C/D で切り出したもの）それぞれに1つ以上のテストが存在する | テスト一覧の突き合わせ |
 
 ---
 
 ## 判定コマンド
 
-criteria 段階で以下を確定させ、CLAUDE.md の Commands 欄と一致させること。
-**Native SDK のテスト起動方法は未検証**（SDK 未インストールのため）。
+Native SDK 公式ドキュメントで確認済み（`vercel-labs/native` の `docs/src/app/cli/page.mdx`、
+`docs/src/app/testing/page.mdx`）。**SDK 未インストールのため実行はまだしていない。**
+criteria 段階の最初の作業として、これらが実際に通ることを確認する。
 
 ```sh
-# テスト（要確認: `native test` が存在するか、`zig build test` か）
-<TBD>
+# テスト: アプリのテストスイートを実行し、最後に `native test: passed` を出す。
+# 同時に native check が読むモデル契約成果物を更新する。
+native test app
 
-# lint（no-emoji / design-tokens-only / a11y）
-<TBD>
+# check: ビルドせずにツリー全体を検証。--strict は警告を失敗に昇格させる。
+native check app --strict
 
-# A6 のパターン検査
-rg -n 'dragging' app/src/main.zig | rg 'vel|velocity'   # ヒット0であること
+# 環境診断（criteria 段階の最初に1回）
+native doctor
+```
 
-# E1-E3 の CPU 計測（macOS）
+### `native check` の a11y 検査はこのアプリでは空振りする
+
+`native check` のアクセシビリティ検査は `src/**.native` マークアップファイルが対象。
+**`app/` にマークアップは0個**（Zig 6ファイル + `app.zon` のみ、gpu_surface 直描画）。
+したがって G3 は `native check` では判定できず、独自検査が必要。
+
+```sh
+# G3: app.zon の全 view 宣言に accessibility_label があること
+#     （view 宣言数と accessibility_label 出現数が一致すること）
+test "$(rg -c 'kind = "gpu_surface"|kind = "webview"' app/app.zon)" \
+   = "$(rg -c 'accessibility_label' app/app.zon)"
+
+# G1: 本プロジェクトが追加した行に絵文字が無いこと
+git diff 6e205e5..HEAD -- app/ | rg '^\+' | rg -P '[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]'
+# ヒット0であること
+
+# G2: 追加した行に色リテラルが無いこと（色は petdexTokens() 経由のみ）
+git diff 6e205e5..HEAD -- app/src/ | rg '^\+' | rg -i '0x[0-9a-f]{6,8}|#[0-9a-f]{6}'
+# ヒット0であること（petdexTokens() 内の定義を除く）
+
+# A6: dragging 分岐から速度参照が消えていること
+rg -n -A6 'if \(model\.dragging\)' app/src/main.zig | rg 'vel|velocity'
+# ヒット0であること
+
+# F1: 上流の著作権表示が改変されていないこと
+git diff 6e205e5..HEAD -- app/LICENSE   # 出力が空であること
+
+# F3: 上流の既存 Zig テスト18個が通ること（native test の出力に含まれる）
+native test app
+
+# E1-E3: アイドル時 CPU 計測（macOS）
 scripts/measure-idle.sh   # criteria 段階で作成
 ```
