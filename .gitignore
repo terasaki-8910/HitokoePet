@@ -1,5 +1,10 @@
 state/
 *.log
+
+# Native SDK のビルド生成物（ルートから叩いた場合。app/ 配下は app/.gitignore が既にカバー）
+zig-out/
+.zig-cache/
+.native/
 .DS_Store
 node_modules/
 __pycache__/

@@ -19,8 +19,12 @@ Generated artifacts (code, comments, docs, commit messages, UI copy) default to 
 Change here to override per project. The language I chat in is separate and unaffected.
 
 ## Commands
-- Tests: <e.g. npm test / pytest>
-- Lint:  <e.g. npm run lint>   (MUST include: no-emoji, design-tokens-only, a11y)
+- Tests: `native test app`
+- Lint:  `native check app --strict && scripts/gate-lint.sh`
+  native check だけでは不足。理由: このアプリに .native マークアップが0個（Zig + app.zon の
+  gpu_surface 直描画）で、check の a11y/バインディング検査が空振りする。no-emoji /
+  design-tokens-only / a11y は scripts/gate-lint.sh で担保する（criteria 段階で作成）。
+  判定内容の詳細は ACCEPTANCE.md の「判定コマンド」節。
 
 ## UI rules
 IMPORTANT: colors ONLY via design tokens; never hardcode hex. No emoji in UI or source.
