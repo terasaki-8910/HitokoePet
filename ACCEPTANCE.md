@@ -60,7 +60,7 @@
 
 | # | 基準 | 判定 |
 | --- | --- | --- |
-| C7 | `play_audio` が `afplay` / `pw-play` / `paplay` / `ffplay` / `aplay` の順に探索し、最初に見つかったものを使う | PATH を差し替えた5ケースで検査 |
+| C7 | `play_audio` が `afplay` / `pw-play` / `paplay` / `ffplay` / `powershell.exe` / `aplay` の順に探索し、最初に見つかったものを使う | PATH を差し替えた6ケースで検査 |
 | C8 | 再生コマンドが1つも見つからない環境で exit 0 し、何も出力しない（ヘッドレス機での想定動作） | PATH を空にして検査 |
 | C9 | `shellcheck` が警告0で通る | `shellcheck voice/*.sh` |
 | C10 | NixOS 用の `writeShellApplication` 定義の `runtimeInputs` が、スクリプトが実際に呼ぶ外部コマンドを網羅している | スクリプトから抽出したコマンド一覧と突き合わせ |
@@ -118,6 +118,21 @@
 | H6 | 対象 pid が既に終了している場合、spawn せずに何も起きない | Zig unit test |
 | H7 | 対応していない端末エミュレータ環境で、エラーを出さず何も起きない | 統合テスト（spawn を失敗させる） |
 | H8 | pid → tty の解決が、tty を持たない pid（デーモン等）に対して `null` を返す | Zig unit test |
+
+## S. spike（他のすべてに先行する。ここが落ちたら土台の選択自体が無効）
+
+SPEC 5.1 参照。`app/` に SDK バージョンの固定が無く、`transparent` / `floating` が
+現行SDKのマニフェストスキーマに存在しないため、まずここを確認する。
+
+| # | 基準 | 判定 |
+| --- | --- | --- |
+| S1 | `native build app` が現行の `@native-sdk/cli` で成功する | 終了コード |
+| S2 | 起動したウィンドウが実際に透過している（背景が抜けている） | `native automate screenshot` のアルファ検査 |
+| S3 | ウィンドウが最前面に留まる | `native automate snapshot` |
+| S4 | S1-S3 が通らない場合、通るSDKバージョンを特定し `app/` に固定する手段が存在する | バージョン固定後に S1-S3 を再実行 |
+| S5 | アイドル時CPUの原因が特定され、`docs/prior-art.md` に記録されている | ファイル内容レビュー |
+
+**S1-S3 が通るまで、E1/E2 の目標値は設定しない。**
 
 ## E. アイドル時 CPU（SPEC 3.5）
 

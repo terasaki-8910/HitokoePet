@@ -57,9 +57,8 @@ Codex pet アトラス規格。本プロジェクトはこれを**無改変で�
 
 ### 3.3 音声通知（`voice/` — ペットとは独立した成果物）
 
-**ペット本体とは対応環境が異なる。** `app/` は macOS のみだが（5.1）、本項目は
-シェルスクリプトなので macOS / Ubuntu / NixOS の3環境で動く。Ubuntu / NixOS 機には
-`voice/` だけを配る。
+**ペット本体とは対応環境が異なる。** `app/` の対応OSは spike の出力だが（5.1）、
+本項目は macOS / Ubuntu / NixOS / Windows で動かす。ペットが載らない環境にも `voice/` だけを配る。
 
 - 発火条件: Claude Code の `Stop` フックのみ。**`SubagentStop` は対象外**
 - 内容: 完了を伝える発話
@@ -94,6 +93,18 @@ play_audio() {
 
 `aplay` は ALSA 直叩きでサウンドサーバー使用中に失敗しやすいため最後の砦とする。
 Ubuntu は PipeWire でも `pipewire-pulse` 経由で `paplay` が通る。
+
+**Windows**: PowerShell 標準の `Media.SoundPlayer` で追加依存なしに再生できる。
+
+```sh
+elif command -v powershell.exe >/dev/null; then
+  powershell.exe -NoProfile -Command \
+    "(New-Object Media.SoundPlayer '$(wslpath -w "$1" 2>/dev/null || echo "$1")').PlaySync()"
+```
+
+**未検証**: Windows ネイティブの Claude Code がフックをどのシェルで起動するか
+（`cmd` / PowerShell / Git Bash）。`.sh` がそのまま起動されない場合は `.ps1` 版が要る。
+WSL 上で動かす場合は上記の分岐で足りる。criteria 段階で実機確認する。
 
 **その他の要件**:
 
@@ -174,13 +185,20 @@ Ubuntu は PipeWire でも `pipewire-pulse` 経由で `paplay` が通る。
 経過 1分31秒 / CPU時間 20.65秒 / RSS 111MB  →  1コアの約23%を継続消費
 ```
 
-**原因**: GPUサーフェスが `gpu_present_mode = "timer"` + `gpu_vsync = true` で
-ディスプレイのリフレッシュレートに合わせて再描画し続けている（`app/app.zon`、および
-`app/src/main.zig:42` に同等のZigリテラル宣言）。一方スプライトのフレーム更新間隔は
-120〜280ms（`uniform(8, 120, 220)` 等）。**1スプライトフレームあたり15〜30回、
-同じ絵を描き直している。**
+**原因は未確定。** 確実なのは上記の実測値のみ。当初「`gpu_present_mode = "timer"` +
+`gpu_vsync = true` により1スプライトフレームあたり15〜30回同じ絵を描き直している」と
+断定したが、**撤回する**。根拠:
 
-**方針**: 描画を要求駆動に変えるか、タイマー周期をスプライトのフレームレートまで落とす。
+- SDK の `GpuSurfacePresentMode = enum { none, timer }` に**要求駆動モードが存在しない**。
+  「描画を要求駆動に変える」という当初の修正案はマニフェストレベルでは取れない
+- SDK のコメントに「idle skipped frames (no repaint needed) keep the previous value」とあり、
+  ランタイム側に既に再描画スキップの仕組みがある。冗長描画が起きているとは限らない
+
+**方針**: spike で原因を特定してから修正案を決める。候補は
+(a) `gpu_present_mode = "none"` の挙動確認、
+(b) アプリ側がフレーム未変化時にスキップを正しく通知できているかの確認、
+(c) `gpu_vsync` を落とす。
+E1/E2 の目標値は原因特定後に確定する。
 
 ### 3.6 吹き出しタップでセッションの端末へ移動
 
@@ -220,8 +238,9 @@ spawn をアサートできるため機械判定可能（ACCEPTANCE H）。
 - **セッション一覧パネル** — 吹き出しが集約規則の勝者を指し、タップでその端末へ飛べる（3.6）ので、
   一覧を出す必要が無い。「1匹で全体を代表」の静けさを保つ
 - **ローカルTTSランタイムの各環境への導入** — 3.3 の理由による。生成は母艦（L3）に寄せる
-- **Windows での音声通知** — `play_audio` が Unix 系コマンドを前提とする
 - **iTerm2 以外の端末エミュレータへの対応保証** — 3.6 の制約。対応していない端末では何もしない
+- **Windows / Linux の端末フォーカス（3.6）** — Windows Terminal や Wayland では
+  ウィンドウフォーカスの外部制御が制限される。macOS + iTerm2 のみを保証対象とする
 - **音素（viseme）ベースの口パク** — 3.4 の理由による
 - **Codex / Gemini CLI / opencode 向けの新機能** — 上流の既存対応は壊さないが、拡張もしない
 - **上流への PR** — v1 では行わない。3.1 と 3.5 は上流のバグ／改善なので将来の検討事項として
@@ -232,23 +251,61 @@ spawn をアサートできるため機械判定可能（ACCEPTANCE H）。
 
 ## 5. 制約とリスク
 
-### 5.1 成果物ごとに対応OSが異なる
+### 5.1 対応OS — ペット本体は spike の出力であって、intake の前提ではない
 
 本プロジェクトは**対応環境の異なる2つの成果物**からなる。混同しないこと。
 
 | 成果物 | 中身 | 対応環境 |
 | --- | --- | --- |
-| `app/` | ペット本体（3.1 / 3.2 / 3.4 / 3.5 / 3.6） | **macOS のみ** |
-| `voice/` | 音声通知フック（3.3） | **macOS / Ubuntu / NixOS** |
+| `app/` | ペット本体（3.1 / 3.2 / 3.4 / 3.5 / 3.6） | **spike で決める**（下記） |
+| `voice/` | 音声通知フック（3.3） | macOS / Ubuntu / NixOS / **Windows** |
 
-当初「win/mac/linux で使いたい」としていたが、取り込んだ上流コードは
-`app.zon` で `gpu_backend = "metal"` を決め打ちしている。`platforms` には
-3OS が宣言されているが、**GPUサーフェスが Metal 固定である以上、Windows/Linux で
-描画が成立するかは未検証**。ペット本体は v1 では macOS のみを対象とし、
-他OSは動作保証外とする。3OS対応は上流の進捗を見て別途判断する。
+#### 撤回した判断
 
-Ubuntu / NixOS 機には `voice/` だけを配る。**それらの環境にペットは載らない。**
-Windows は `voice/` の対象にも含めない（`play_audio` が Unix 系のコマンドを前提とするため）。
+当初「`app.zon` が `gpu_backend = "metal"` を決め打ちしているので macOS のみ」としたが、
+**これは誤り**。SDK の `GpuSurfaceBackend = enum { none, metal, software }` のコメントと
+公式プラットフォーム対応表の脚注2に、Linux と Windows は決定論的ソフトウェアレンダラを
+プラットフォームの blit 経路（Linux: cairo、Windows: GDI）で提示し、
+**別バックエンドを要求したマニフェストはエラーにせず software にフォールバックする**と明記されている。
+マニフェストの `gpu_backend` はプラットフォームの門ではない。
+
+SDK は3デスクトップとも実装している（macOS が最深、Windows は Win32 ホストで
+実入力注入を含めCI検証、Linux はソフトウェアレンダラで実ウィンドウ）。
+
+#### 実際の未確認事項（OS選定より前に潰す）
+
+**ペットに不可欠な `transparent` と `floating` が、SDK の現行マニフェストスキーマに存在しない。**
+
+- `ShellWindow` のフィールドは label / title / width / height / x / y / resizable /
+  restore_state / restore_policy / titlebar / min_width / min_height / close_policy / views のみ
+- `app.zon` の公式ドキュメントのフィールド一覧にも、プラットフォーム対応表にも記載が無い
+- SDK ソース中の `transparent` は全て WebView 用オプション
+- それでも取り込んだ `app/app.zon` は `.floating = true` と `.transparent = true` を書いている
+- **`app/` に SDK バージョンの固定が無い。** `native build` はグローバル導入の
+  `@native-sdk/cli` を使う。pre-1.0 に対してピン留め無しで参照している
+
+したがって「Windows で透過ウィンドウが出るか」以前に、**現行SDKで macOS でも透過ウィンドウが
+出るかが未確認**。ここが成立しなければ土台（petdex-desktop-native）の選択自体が無効になる。
+
+#### spike の順序（これ以外の作業を始める前に）
+
+1. `native build app` が現行SDKで通るか
+2. 透過・最前面のウィンドウが macOS で実際に出るか。出ないなら SDK バージョンを特定して固定する
+3. 同じことを Windows で確認する
+4. 同じことを Linux で確認する
+
+#### OS別の既知のギャップ（1〜4が通った場合に効いてくる）
+
+| | macOS | Windows | Linux |
+| --- | --- | --- | --- |
+| SDK の成熟度 | 最深 | Win32ホスト、CI検証あり | ソフトウェアレンダラ |
+| システムトレイ | あり（NSStatusItem） | あり | **無し**（`UnsupportedService` を返す） |
+| `close_policy = "hide"` | 可 | `"tray"` capability が必須。無いと**ビルド時に拒否** | **ビルド時に拒否**（再表示手段が無いため） |
+
+`app/app.zon` の `capabilities` は `native_views, gpu_surfaces, menus, url_schemes` で、
+**`tray` を宣言していない**。Windows でトレイを使うなら追加が必要。
+Linux はトレイが無いため、常駐ペットの終了・再表示の導線を別途設計する必要がある
+（右クリックメニューは3デスクトップとも native で動く）。
 
 ### 5.2 Native SDK の成熟度
 
