@@ -1,0 +1,34 @@
+# エディタ側の文字コード・改行の統一。
+# .gitattributes は git の変換を制御するが、エディタが Shift-JIS で保存するのは
+# 止められない。Zig のソースは仕様上 UTF-8 必須で、日本語コメント（CLAUDE.md の
+# 言語方針により必ず入る）を Shift-JIS で保存するとコンパイルが通らない。
+# Windows の日本語環境で書く際はこのファイルが効くエディタを使うこと。
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.zig]
+indent_size = 4
+
+[*.zon]
+indent_size = 4
+
+[*.sh]
+indent_size = 2
+
+[*.{md,yaml,yml,json}]
+indent_size = 2
+
+# バッチだけは CRLF（.gitattributes と揃える）
+[*.{bat,cmd}]
+end_of_line = crlf
+
+# Makefile はタブ必須
+[Makefile]
+indent_style = tab

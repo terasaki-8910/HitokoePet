@@ -1,0 +1,46 @@
+# 改行コードとエンコーディングの正規化
+#
+# 背景: このプロジェクトは macOS / Ubuntu / NixOS / Windows で書かれ、動く。
+# Git for Windows のインストーラ既定は core.autocrlf=true で、チェックアウト時に
+# LF -> CRLF 変換が入る。これを放置すると以下が壊れる。
+#
+#  1. シェルスクリプトの shebang が "#!/usr/bin/env sh\r" になり、
+#     Linux/macOS で `bad interpreter: ...^M` で起動しない。
+#     voice/ は成果物そのものがシェルスクリプトなので致命的。
+#  2. app/ は上流 petdex からの subtree。正規化が上流とずれると
+#     `git subtree pull` が全ファイル衝突になる。上流は LF。
+#  3. 口パク用の RMS エンベロープはバイト同一性が受け入れ基準（ACCEPTANCE D12）。
+#     テキスト扱いされて変換されると再生成 diff が一致しない。
+
+# 既定: 作業ツリーもリポジトリも常に LF。
+* text=auto eol=lf
+
+# Windows のバッチだけは CRLF でないと動かない。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# シェルスクリプトは明示。ここが CRLF になると全環境で起動しない。
+*.sh  text eol=lf
+*.ps1 text eol=lf
+
+# バイナリ（テキスト誤判定による変換を防ぐ）
+*.png  binary
+*.gif  binary
+*.webp binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.icns binary
+*.wav  binary
+*.mp3  binary
+*.flac binary
+*.zip  binary
+
+# 口パク用 RMS エンベロープ。バイト同一性が受け入れ基準（ACCEPTANCE D12）。
+*.rms  binary
+
+# Zig のソースは仕様上 UTF-8 必須。日本語コメントを Shift-JIS で保存すると
+# コンパイルが通らない。git は文字コードを変換しないので、これは
+# エディタ側の設定で守る（.editorconfig 参照）。ここでは改行のみ保証する。
+*.zig text eol=lf
+*.zon text eol=lf
