@@ -1,4 +1,4 @@
-# SPEC — CLAUDE CODE PET
+# SPEC — HitokoePet
 
 ## 1. これは何か
 
@@ -73,7 +73,7 @@ Codex pet アトラス規格。本プロジェクトはこれを**無改変で�
 | 層 | 内容 | 動く場所 |
 | --- | --- | --- |
 | L1 | イベント種別ごとの固定WAV | 各マシン |
-| L2 | 文言のハッシュをファイル名にしたキャッシュ（`~/.cache/claude-voice/<sha1>.wav`） | 各マシン |
+| L2 | 文言のハッシュをファイル名にしたキャッシュ（`~/.cache/hitokoe/<sha1>.wav`） | 各マシン |
 | L3 | キャッシュミス時のみ Tailscale 越しに母艦の TTS へ | 母艦（ThinkBook） |
 
 L3 で生成したものを L2 に落とすので、プロジェクト名のような準固定の文言は2回目以降ヒットする。
@@ -113,7 +113,7 @@ WSL 上で動かす場合は上記の分岐で足りる。criteria 段階で実�
   （実機確認済み）。POSIX で原子的な `mkdir` によるロックを使う:
 
   ```sh
-  LOCK=~/.cache/claude-voice/.lock
+  LOCK=~/.cache/hitokoe/.lock
   until mkdir "$LOCK" 2>/dev/null; do
     [ "$(( $(date +%s) - start ))" -ge "$LOCK_TIMEOUT" ] && exit 0   # 諦めて滞留させない
     sleep 0.1

@@ -1,4 +1,4 @@
-# ACCEPTANCE — CLAUDE CODE PET
+# ACCEPTANCE — HitokoePet
 
 全項目は pass/fail で機械判定できること。判定手段を各項目に明記する。
 `<TBD>` は criteria 段階（spike 完了後）に確定させる値。それまで build を開始しない。

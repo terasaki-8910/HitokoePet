@@ -1,6 +1,6 @@
 # Declarative source of truth. Humans and Claude read this;
 # scripts/run.sh executes the same stages. Keep the two in sync.
-project: "CLAUDE CODE PET"
+project: "HitokoePet"
 has_ui: true           # true -> enables the design gate (touch state/has_ui to activate at runtime)
 models:
   intake: opus         # spec Q&A

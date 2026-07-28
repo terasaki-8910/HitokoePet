@@ -1,13 +1,18 @@
-# Project: CLAUDE CODE PET
+# Project: HitokoePet
 
 ## What this is
-CLAUDE- claude code petの作成…codex petと同じようなやつ
-    - win,mac,linuxで使いたいのでelectronがよさそう
-    - 複数のセッションを監視したい
-    - つまみモーションも欲しい
-    - codex petと互換性が生まれるものが作りたい.
-    - pixelartディレクトリに示すようなドット絵を動かしたい。細かな作業は私がやるが、できれば自動化したい。
-    Scope in SPEC.md; pass/fail criteria in ACCEPTANCE.md.
+Claude Code のセッション状態に反応するデスクトップペット。全セッションを1匹が代表し、
+作業完了を声で伝え、口パクする。Codex pet のアトラス規格と互換。
+
+上流 [petdex](https://github.com/crafter-station/petdex) の `packages/petdex-desktop-native`
+を `app/` に subtree で取り込み、既存3実装に無い4点を足す構成
+（つまみ保持 / 多セッション集約 / 音声・口パク / アイドルCPU削減 + 吹き出しタップ）。
+
+Scope in SPEC.md; pass/fail criteria in ACCEPTANCE.md.
+先行調査と実測値は docs/prior-art.md。Windows 機への引き渡しは docs/handoff-windows.md。
+
+> intake 前の初期メモにあった「electron がよさそう」「win,mac,linux で使いたい」は
+> 調査の結果いずれも変更になった。現在の決定は SPEC.md 5.1 が正。
 
 ## Workflow
 Driven by scripts/run.sh through gated stages (see pipeline.yaml). Do NOT skip gates.

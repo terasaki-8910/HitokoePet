@@ -1,4 +1,4 @@
-# design_brief — CLAUDE CODE PET
+# design_brief — HitokoePet
 
 共有UI方針: @~/.claude/rules/ui.md
 
