@@ -21,6 +21,19 @@
 | A5 | 投擲の減速完了後に `.waving` へ遷移する既存挙動が維持されている | Zig unit test |
 | A6 | `app/src/main.zig` 内に `dragging` 分岐から速度を参照する条件式が残っていない | `rg` パターン検査（下記） |
 
+### A-2. moveWindow のプラットフォーム実装（SPEC 3.1 スコープ拡張、spike で判明）
+
+固定した Native SDK フォーク（`app/PROVENANCE.md`）は `fx.moveWindow` を macOS にしか
+実装していない。Windows・Linux(X11) 向けに追加実装し、Linux(Wayland) では
+no-op で降格させること。
+
+| # | 基準 | 判定 |
+| --- | --- | --- |
+| A7 | Windows で、ドラッグ中に実ウィンドウが実際にマウスへ追従する（`SetWindowPos` 実装） | 統合テスト（実機、OSレベル入力シミュレーション + `GetWindowRect` 差分） |
+| A8 | Linux(X11) で、ドラッグ中に実ウィンドウが実際にマウスへ追従する（`XMoveWindow` 実装） | 統合テスト（実機、X11セッション） |
+| A9 | Linux(Wayland) セッションで `moveWindow` 呼び出しがエラーにならず、単に何も起きない（劣化動作） | 統合テスト（Wayland環境検出の単体テスト + 実機） |
+| A10 | Windows・Linux(X11) の `moveWindow` 実装が、A2（速度非依存の単一つまみ状態）と組み合わさっても物理挙動（A4/A5の投擲・waving復帰）を壊さない | 統合テスト |
+
 ## B. 複数セッションの集約（SPEC 3.2）
 
 **着手前ゲート**: 8セッション並走時の上流実装の挙動を実測し、結果を `state/BASE.md` に
@@ -124,13 +137,15 @@
 SPEC 5.1 参照。`app/` に SDK バージョンの固定が無く、`transparent` / `floating` が
 現行SDKのマニフェストスキーマに存在しないため、まずここを確認する。
 
-| # | 基準 | 判定 |
-| --- | --- | --- |
-| S1 | `native build app` が現行の `@native-sdk/cli` で成功する | 終了コード |
-| S2 | 起動したウィンドウが実際に透過している（背景が抜けている） | `native automate screenshot` のアルファ検査 |
-| S3 | ウィンドウが最前面に留まる | `native automate snapshot` |
-| S4 | S1-S3 が通らない場合、通るSDKバージョンを特定し `app/` に固定する手段が存在する | バージョン固定後に S1-S3 を再実行 |
-| S5 | アイドル時CPUの原因が特定され、`docs/prior-art.md` に記録されている | ファイル内容レビュー |
+| # | 基準 | 判定 | 状態（2026-07-29） |
+| --- | --- | --- | --- |
+| S1 | `native build app` が現行の `@native-sdk/cli` で成功する | 終了コード | **済**（npm版では失敗。`Railly/native@65d4885` 固定ビルドで成功。`app/PROVENANCE.md`） |
+| S2 | 起動したウィンドウが実際に透過している（背景が抜けている） | `native automate screenshot` のアルファ検査 | **未**（macOS実機未確認。Windowsでは実デスクトップキャプチャで確認済みだが、透過領域に既知のノイズ課題あり） |
+| S3 | ウィンドウが最前面に留まる | `native automate snapshot` | **済**（Windows実機で `WS_EX_TOPMOST` 確認） |
+| S4 | S1-S3 が通らない場合、通るSDKバージョンを特定し `app/` に固定する手段が存在する | バージョン固定後に S1-S3 を再実行 | **済**（上記の通り） |
+| S5 | アイドル時CPUの原因が特定され、`docs/prior-art.md` に記録されている | ファイル内容レビュー | **一部進捗**（矛盾は解消。旧断定を撤回し、Windows実機で `gpu_present_path=pixels`＝パッチ差分最適化が効かないCPUフォールバック経路であることを確認。macOS側で `gpu_present_path` が `packet`/`pixels` のどちらかを確認するまでは、22.7%baselineの原因を確定できない。`docs/prior-art.md` 5.1参照） |
+
+Linux (S1-S3のLinux版) は未実施。
 
 **S1-S3 が通るまで、E1/E2 の目標値は設定しない。**
 

@@ -4,113 +4,134 @@
 
 </div>
 
-# claude-pipeline-template
+# HitokoePet
 
-Claude Code で **1 つのプロジェクト**を、ざっくりした案からゲート付き・テスト済みの
-成果物まで進めるための **GitHub テンプレートリポジトリ**。複数プロジェクトは別リポジトリ
-として並列に走らせるだけでよい（共有状態なし）。Ralph 式の反復は build ステージの内部に
-だけ、テストで束ねた有界ループとして使う（無人の朝までグラインドではない）。
+Claude Code のセッション状態に反応するデスクトップペット。1匹が全セッションを代表し、作業完了を声で伝えて口パクする（Codex pet アトラス規格と互換）。
 
-## ファイル構成
-- `pipeline.yaml`  — 宣言的な仕様（単一の真実）。run.sh と同期を保つこと。
-- `scripts/run.sh` — POSIX ドライバ本体：段階を進め、人間ゲートで通知して停止。
-- `scripts/gates.sh` — 機械ゲート（テスト / lint / ui）。プロジェクトごとに調整。
-- `prompts/0X-*.md` — 各段階の「契約」。
-- `CLAUDE.md`      — プロジェクト記憶（グローバルの UI ルールを取り込む）。
-- `.claude/settings.json` — スコープ付き権限（安全性の項参照）。素の skip-permissions は使わない。
-- `Makefile`       — 任意の短縮（`make plan`, `make build` …）。
+このプロジェクトは**対応環境の異なる2つの成果物**からなる。混同しないこと。
 
-## マシン全体の一度きり設定（このリポジトリ外）
-1. git の co-author 行を全プロジェクトで止める：
-   `~/.claude/settings.json` → `{ "includeCoAuthoredBy": false }`
-2. 全プロジェクト共通の UI 方針：
-   `docs/ui-rules.starter.md` を `~/.claude/rules/ui.md` にコピーして継続的に洗練する。
-   `~/.claude/CLAUDE.md` と `~/.claude/rules/` は全プロジェクトで読み込まれる。フロントエンドの
-   glob にスコープすれば UI 作業時のみ読み込まれる（rules ディレクトリのドキュメント参照）。
+| 成果物 | 中身 | 対応環境 |
+| --- | --- | --- |
+| `app/` | ペット本体（つまみ / 多セッション集約 / 口パク / アイドルCPU削減 / 吹き出しタップ） | spike で決定。現状 Windows 実機でビルド・最前面・透過を確認（透過領域に既知のノイズ課題あり）。macOS / Linux は未検証 |
+| `voice/` | 音声通知フック（Stop フックで完了を発話） | macOS / Ubuntu / NixOS / Windows |
 
-## プロジェクトごとの使い方
-1. GitHub でこのリポジトリを Template repository に設定（Settings → Template repository）。
-2. 新規プロジェクトごとに Use this template → 新リポジトリ → clone。
-3. `CLAUDE.md` に**プロジェクト名と一行の目的だけ**手で記入（test/lint コマンド欄は空でよい
-   ——intake がスタック確定後に埋め、あなたが確認する）。生成物の言語は `Language` 欄（既定=
-   英語、会話言語とは別）で指定。UI があるなら `touch state/has_ui`。
-4. パイプライン実行：`sh scripts/run.sh all`（段階ごとにも：`… intake` など）。
-   intake は**案内型**：一行のざっくり指示から始め、Claude が各論点で選択肢を出し、あなたは
-   選ぶだけ（重い判断が先・細部は後）。合わなければ自分で指定も可。
-5. intake の最後に**プロジェクト別の道具提案**（MCP/プラグイン/スキル）が出る。承認すると
-   `state/TOOLING.md`（提案書）と `state/init-tools.sh`（導入コマンド）が生成される。入れる場合は
-   中身を確認し `sh state/init-tools.sh` を**自分で**実行する（Claude は自動導入しない）。intake は
-   **プロジェクト固有の .gitignore 追加**も提案する（大きな fixture・生成物を build の `git add -A`
-   がコミットしないように）。
-6. （任意）`sh scripts/run.sh slim` — このプロジェクトの git から**パイプライン機構**（`scripts/`,
-   `prompts/`, `pipeline.yaml`, `Makefile`, `docs/ui-rules.starter.md`）を untrack + gitignore し、
-   **git に成果物だけ**を残す（機構はディスクに残り実行可）。仕上げに `git commit`。※テンプレート
-   本体では拒否される（Use this template で配布するため全追跡が必須）。
+`app/` は上流 [petdex](https://github.com/crafter-station/petdex) の `packages/petdex-desktop-native` を subtree で取り込み（MIT、`app/PROVENANCE.md` 参照）、そこに本プロジェクト固有の機能を足したもの。
 
-## 段階（ゲート）
-0 intake（人間・1回：仕様確定＋プロジェクト別の道具提案 → `TOOLING.md` / `init-tools.sh`）／
-1 criteria（人間）／2 design_gate（UI のみ・人間・1回）／
-3 plan（目視）／4 build（機械ゲート・worktree・既定は逐次）／
-5 feature_accept（機械＋軽い人間・ローカルマージ）／6 integration_accept（機械＋人間・1回）
+## 要件
 
-## 進捗確認・復旧
-- `sh scripts/run.sh status` — 完了したステージ（`[x]`）と、**次に進むコマンド**を表示。各
-  ステージは人間ゲートを通った時点で `state/done/<stage>` に記録される（UI 無しなら design は
-  `[-] n/a`）。「どこまで終わって、次に何を打てばいいか」が一目で分かる。
-- ゲート失敗時は**その場で修復メニュー**:`1) auto`（直るまで自動修復）/ `2) hybrid`〔既定・Enter・
-  数回で人間へ〕/ `3) stop`（**対話 Claude をエラー付きで起動**して自分で直す→`/exit` 後に再判定）。
-  auto/hybrid は失敗出力をエージェントに渡して直させる（盲目リトライでなく実デバッグ）。無進捗で自動
-  停止、テストを弱める/消すのは禁止。
-- 完了（DONE）時に **NEXT STEPS** を出力:設定すべき env/シークレット（SPEC から抽出）・外部ツール・
-  使い方（README 参照）・integration で skip された未検証テストの回し方。
-- `sh scripts/run.sh reset` — **失敗からの復旧**。build の worktree・`feature/*` ブランチ・
-  チェックポイントを消し、仕様/基準/計画（SPEC・ACCEPTANCE・PLAN・tests・gates）は残す。→
-  `from build` で作り直せる。
+- **Native SDK（`@native-sdk/cli`）** — ペット本体のビルド・テストに必須。
+  ただし **npm 公開版（0.4.0〜0.6.1）は使えない**。`app/app.zon` の `.floating` /
+  `.transparent` を unexpected field として拒否し `native build` が失敗する。
+  `Railly/native@feat/floating-window-0.5.3`（commit `65d4885`）から自前ビルドした
+  CLI が必要（固定内容は `app/PROVENANCE.md`）。SDK は pre-1.0 で破壊的変更が入る前提。
+- **音声再生コマンド** — `voice/` は `afplay` / `pw-play` / `paplay` / `ffplay` /
+  `powershell.exe` / `aplay` のいずれかを自動検出して使う。1つも無い環境（ヘッドレス機）
+  では黙って何もしない。
+- **Codex pet アトラス素材** — 下記のスプライトシートと `pet.json` を
+  `~/.codex/pets/<id>/` に置く。
+- **（任意）`shellcheck`** — `voice/` のシェルスクリプト検査に使う。
 
-## 任意コマンド：先行事例調査（build 前）
-`sh scripts/run.sh survey` — 一から作る前に、似た既存プロジェクトを**実検索**して提示（記憶
-からの列挙は禁止＝幻覚回避）。`all` には含まない。選択は「一から作る（既定）／既存を base に
-採用」。base 採用時は `state/BASE.md` に記録するがコードは複製しない——採用しても通常の
-criteria/build ゲートを通し、ライセンスも自分で満たす（"存在するだけ"では信用しない）。
-**要件**：WebSearch の有効化が必要（現状 `.claude/settings.json` は WebFetch を deny）。
+### スプライトシート規格（上流から継承、無改変で読める）
 
-## 任意コマンド：自動化提案（build 後）
-`sh scripts/run.sh recommend` — **完成したコード**を解析し、Hooks/MCP/subagent/skill を**提案**
-（実装はせず `state/RECOMMENDATIONS.md` に出力、あなたが採否を決める）。`claude-code-setup`
-プラグインがあればその `automation-recommender` スキルを使い、無ければ内蔵で代替。**DONE で自動
-実行**される（`RECOMMEND=0` で無効化）。コードが無いと意味が無いので intake ではなく完成後。
+- 8列 × 9行、セル 192×208px、全体 1536×1872px、透過 PNG/WebP
+- 行 = 状態、列 = フレーム。余りセルは完全透明
+- 行順: `idle`(6) / `running-right`(8) / `running-left`(8) / `waving`(4) /
+  `jumping`(5) / `failed`(8) / `waiting`(6) / `running`(6) / `review`(6)
+- 配置: `~/.codex/pets/<id>/` に `pet.json` + `spritesheet.webp`
 
-## モデル
-仕様・基準 = Opus、design・build = Sonnet。段階ごとに環境変数で指定
-（`MODEL_BUILD=sonnet` など）。`opus-plan` は対話モードでありヘッドレスのモデル文字列では
-ないので、ヘッドレスの plan では `MODEL_PLAN` は実在モデルのまま。Fable は**手動エスカレー
-ションのみ**（ブロッカーを `state/BLOCKED-*.md` に書いて手で上げる）。一部の Fable クエリは
-Opus に迂回し可用性・セーフガードの注意もあるため、自動化はしない。
+## セットアップ
 
-## 安全性（重要）
-- 各機能は隔離された `git worktree` でビルドする。この隔離が安全境界。
-- `.claude/settings.json` はスコープ付き許可リストを与え、push と rm -rf を deny する。
-  本番マシンで `--dangerously-skip-permissions` を使わないこと。使う場合も worktree /
-  サンドボックス内に限定する。
-- 既定では push しない — すべてローカル git。
+1. **ペット本体をビルドする**（固定した CLI を使う）:
 
-## claude の起動（移植可能・全プロジェクト共通）
-run.sh は文書化された安定形で claude を呼ぶ。マシン依存の調整は不要:
-- 対話（intake）: `claude "<プロンプト>"` — REPL を開き、それを最初のメッセージとして送る。
-- ヘッドレス（criteria/plan/build 等）: `claude -p "<プロンプト>"`。
-権限は `.claude/settings.json` のスコープ付き許可リストで統一。将来 CLI がこの中核フラグを
-変えた時だけ、`claude_interactive` / `claude_run` の1箇所を直す（マシンごとではなくテンプレ
-1箇所の修正）。`--model` は段階別に環境変数で渡す。
+   ```sh
+   native build app
+   ```
 
-## 実行の環境変数（見ながら回す / コスト制御）
-- `INTERACTIVE=1` — criteria/design/plan を**ヘッドレスでなく Claude Code の TUI** で開く。
-  進捗が見え、通知が来て、途中で指示を変えられ、`/exit` で次段へ進む。既定 0 はヘッドレス
-  （無人）。**intake は常に TUI、build は常にヘッドレス**（機能ごとに worktree で回すため）。
-  例：`INTERACTIVE=1 sh scripts/run.sh from plan`
-- `REPAIR_ITERS`（既定 4）/ `REPAIR_HARD_CAP`（既定 12）— ゲート失敗時の自動修復の試行上限
-  （hybrid は REPAIR_ITERS 回で人間へ、絶対上限は HARD_CAP）。各試行は有料実行。
-- `PARALLEL=1` — build を並列化（既定は逐次＝コストと停止性で安全）。
-- `PERMISSION_MODE`（既定 acceptEdits）— ヘッドレスの権限モード。
-- `MODEL_*`（INTAKE/CRITERIA/DESIGN/PLAN/BUILD）— 段階別モデル。
-- 入力待ちの通知：人間ゲート（承認・plan の Enter 待ち）で macOS 通知を鳴らす。**ターミナルが
-  最前面の時は抑制**（見ているので不要）。常に鳴らすなら `NOTIFY_ALWAYS=1`。
+   これでデスクトップ常駐のペットが得られる。ビルドが通ることは `native doctor` で
+   環境を診断してから確認できる。
+
+2. **音声フックを Claude Code に登録する** — `~/.claude/settings.json` の
+   `hooks.Stop[].hooks[]` に `voice/` のスクリプトを設定する。**発火は `Stop` フックのみ**
+   （`SubagentStop` は対象外）。
+
+   > Codex 向けのスクリプトを流用しないこと。Claude Code の Stop ペイロードに `.type` は
+   > 存在せず、`jq -r '.type'` は `null` を返す。「インストールされて動いているように
+   > 見えたまま一度も鳴らない」失敗モードになる（詳細は SPEC 3.3.1）。
+
+3. **（任意）口パクを有効にする** — ペットの隣に口レイヤー `mouth.png` を置く。
+   無いペットは口パク無しで正常動作する（エラーにしない）。振幅は WAV の隣に事前計算した
+   RMS エンベロープ（`done.wav` + `done.rms`）から読む。
+
+4. **（任意）母艦 TTS（L3）を設定する** — キャッシュミス時のみ Tailscale 越しに
+   母艦の TTS へ問い合わせる。母艦が落ちていれば L1 の generic WAV にフォールバックする。
+
+## 使い方・挙動
+
+- **1匹で全体を代表する。** `~/.claude/sessions/<pid>.json` を読み、全セッションを
+  優先度 `waiting` > `busy` > `idle` で1つの表示状態に畳む。セッションが増えても
+  ペットは増えない。スキーマ検証に失敗した場合は本機能を無効化し、既存のフック経路で
+  動作を継続する（劣化動作）。
+- **つまみ。** マウス押下が続く間は速度に依存せず単一のつまみ状態を保持する
+  （ゆっくり動かしても掴んで止めてもモーションが止まらない）。リリース後は投擲物理が働き、
+  減速後に `waving` へ戻る。ウィンドウ追従は macOS（実装済み）に加え Windows
+  （`SetWindowPos`）/ Linux X11（`XMoveWindow`）で動く。Linux Wayland では何もしない。
+- **完了通知の音声。** `Stop` フックが発話を再生する。層構成:
+
+  | 層 | 内容 | 動く場所 |
+  | --- | --- | --- |
+  | L1 | イベント種別ごとの固定 WAV | 各マシン |
+  | L2 | 文言ハッシュをファイル名にしたキャッシュ（`~/.cache/hitokoe/<sha1>.wav`） | 各マシン |
+  | L3 | キャッシュミス時のみ Tailscale 越しに母艦の TTS へ | 母艦 |
+
+  複数プロジェクトを同時に回しても通知が被らないよう、`mkdir` による原子ロックで
+  直列化する。ロック取得待ちが上限を超えたら諦めて exit 0 する（フック起動を滞留させない）。
+- **口パク。** `done.rms` エンベロープを読み、決定論的に口形（閉 / 半 / 開）を選ぶ。
+  再生中の音声は観測せず、音声デバイスにも録音 API にも触らない。同じ WAV は常に同じ
+  口の動きになる。
+- **吹き出しタップ。** 吹き出しを押すと、集約規則の勝者（つまり表示中の状態を採った
+  セッション）が動いている端末のタブへフォーカスを移す。「許可待ちがある → 吹き出しを押す
+  → その端末に飛ぶ」が一直線になる。検証済みは macOS + iTerm2。対応していない端末では
+  何もしない。
+
+## 制約
+
+- **Native SDK は pre-1.0。** 固定ビルドの CLI が必要（上記「要件」）。
+- **`app/` の対応環境は spike の出力**であり、無条件の動作保証はしない。透過ウィンドウは
+  Windows 実機で確認済みだが透過領域にノイズが乗る既知課題がある。macOS / Linux は未検証。
+- **システムトレイ**は macOS / Windows にはあるが Linux には無い。`close_policy = "hide"`
+  は Windows では `tray` capability が必須、Linux ではビルド時に拒否される。
+- **端末フォーカス（吹き出しタップ）は macOS + iTerm2 のみ保証。** Ghostty / WezTerm /
+  Alacritty / kitty は未調査。
+- **内部パスへの依存。** `~/.claude/sessions/` は公開 API ではない内部パスのため、
+  スキーマが変われば集約機能を無効化して動作を継続する。
+
+## スコープ外（明示的に作らない）
+
+- マイク入力 / STT / Claude Code へのプロンプト注入
+- Claude の応答本文の読み上げ
+- セッション数だけペットを表示する（N匹）／セッション一覧パネル
+- ローカル TTS ランタイムの各環境への導入（生成は母艦 L3 に寄せる）
+- iTerm2 以外の端末エミュレータへの対応保証
+- Windows / Linux の端末フォーカス
+- 音素（viseme）ベースの口パク
+- Codex / Gemini CLI / opencode 向けの新機能（上流の既存対応は壊さないが拡張もしない）
+- 上流への PR（v1 では行わない）
+- コード署名 / 公証 / リリース配布
+- Windows / Linux での無条件の動作保証（Wayland のドラッグ、Windows の透過ノイズは未解決のまま）
+
+## ゲート付きパイプラインで開発する
+
+本プロジェクトはゲート付きパイプラインで段階的に作られる。この README も SPEC.md から
+自動生成される成果物であり、手書きしない。
+
+```sh
+sh scripts/run.sh from <stage>      # 指定ステージから進める
+INTERACTIVE=1 sh scripts/run.sh from <stage>   # ヘッドレスでなく TUI で見ながら回す
+```
+
+- 段階（ゲート）の定義は `pipeline.yaml`。
+- pass/fail の判定基準は `ACCEPTANCE.md`。
+- テスト: `native test app`
+- Lint: `native check app --strict && scripts/gate-lint.sh`
+  （`native check` だけでは不足。このアプリは `.native` マークアップが0個のため
+  no-emoji / design-tokens-only / a11y は `scripts/gate-lint.sh` で担保する）

@@ -112,9 +112,32 @@ MIT。本プロジェクトが集約規則を設計する際の出発点にな�
 経過 1分31秒 / CPU時間 20.65秒 / RSS 111MB  →  1コアの約22.7%を継続消費
 ```
 
-原因は `app.zon` の `gpu_present_mode = "timer"` + `gpu_vsync = true`。ディスプレイの
-リフレッシュレートで再描画し続ける一方、スプライトのフレーム更新は120〜280ms間隔
-（`uniform(8, 120, 220)` 等）。1スプライトフレームあたり15〜30回、同じ絵を描き直している。
+**以下の「原因」記述は撤回済み**（SPEC.md 3.5 参照。SDKに `GpuSurfacePresentMode` の
+要求駆動モードが無いこと、および「idle skipped frames は前回値を保持する」という
+ランタイム側コメントの存在により、下記の断定は成立しない）。撤回前の記述:
+
+> ~~原因は `app.zon` の `gpu_present_mode = "timer"` + `gpu_vsync = true`。ディスプレイの
+> リフレッシュレートで再描画し続ける一方、スプライトのフレーム更新は120〜280ms間隔
+> （`uniform(8, 120, 220)` 等）。1スプライトフレームあたり15〜30回、同じ絵を描き直している。~~
+
+**Windows実機での新たな手がかり（2026-07-29、Native SDK固定後）**: 実行中インスタンスの
+ログからフレーム間隔を実測したところ、キャンバス内容が変化していないアイドル状態でも
+`gpu_surface_frame` イベントが平均約33ms間隔（約30fps相当）で継続して発生し続けることを
+確認した。加えて `native automate snapshot` は `gpu_present_path=pixels` を報告している。
+
+SDKソース（`platform/types.zig` の `GpuPresentPath`/`GpuPresentPacketMode` コメント）に
+よると、「変化した分だけ差分転送する」安価な最適化（patch present）は **`.packet`
+（GPU高速パス、`gpu_backend=metal` 等の実GPUバックエンドでのみ使用）専用**で、
+**`.pixels`（CPUソフトウェア参照レンダラのフォールバック経路）にはこの最適化が
+適用されない**。Windows/LinuxはSPEC 5.1の通り `gpu_backend=software` にフォールバック
+するため、常に `.pixels` 経路を通り、内容が変化していなくても毎ティック相応のCPUコストが
+かかっている可能性が高い。
+
+**macOS側で確認すべきこと（S2の実機確認と合わせて）**: `native automate snapshot` の
+`gpu_present_path` が `packet`（期待される、Metal経由の高速パス）か `pixels`
+（何らかの理由でCPUフォールバックに落ちている、要調査）かを見ること。`packet` であれば
+上記のWindows固有の説明はmacOSの22.7%には当てはまらず、原因は別に探す必要がある。
+`pixels` であれば、上記のWindows側の知見がそのままmacOSにも当てはまる可能性が高い。
 
 > Activity Monitor に出る `https://petdex.dev` の各プロセスは Safari の WebContent
 > （XPC、PPID=1）でありPetdexとは無関係。混同しないこと。

@@ -32,6 +32,27 @@ Codex pet アトラス規格。本プロジェクトはこれを**無改変で�
 移動方向による左右の出し分けは行わない（片方向のみ）。リリース後の投擲物理（`throwing`）と、
 停止時に `waving` へ戻る挙動（`main.zig:1412`）は現状のまま維持する。
 
+**スコープ拡張（spike で判明、2026-07-29）**: `main.zig` はドラッグ中、毎フレーム
+`fx.moveWindow` を呼んでウィンドウ自体を追従させる自前実装を持つ（OSネイティブの
+`performWindowDrag` は意図的に不使用 — 速度もテストも見えなくなるため）。しかし
+固定した Native SDK（`app/PROVENANCE.md` 参照）は `fx.moveWindow` の実体
+（`window_actions` バインディング）を **macOS にしか実装していない**。Windows・Linux
+の `root.zig` には一切の実装が無く、Windows実機でのOSレベル入力シミュレーションで
+「ウィンドウが1ピクセルも動かない」ことを確認済み。
+
+したがって3.1は「どの状態を表示するか」の修正だけでなく、**Windows・Linux向けの
+`moveWindow` 実装を Native SDK フォーク側に追加すること**もスコープに含む。
+
+- **Windows**: `SetWindowPos` で素直に実装可能（macOS版と同じ「毎フレーム位置取得→
+  速度計算→投げ物理」設計をそのまま移植する）
+- **Linux（X11）**: `XMoveWindow` 等で同様に実装可能
+- **Linux（Wayland）**: 実装しない。Wayland はセキュリティ/UX上の設計として、
+  クライアントが自分のウィンドウの絶対座標を指定するプロトコルを持たない
+  （どのコンポジタも同様）。唯一の代替は「コンポジタにドラッグ移動を委任する」
+  `gdk_toplevel_begin_move()` 系だが、これは main.zig が意図的に避けている
+  ネイティブドラッグと同じ制約（速度もテストも見えなくなる）を持つため採用しない。
+  Wayland環境では3.6と同様「対応していない環境では何もしない」（エラーにしない）
+
 ### 3.2 複数セッションの集約
 
 **データソース**: `~/.claude/sessions/<pid>.json`。実機で確認済みの構造:
@@ -247,7 +268,11 @@ spawn をアサートできるため機械判定可能（ACCEPTANCE H）。
   `app/PROVENANCE.md` に記録する
 - **コード署名 / 公証 / リリース配布** — 自分で使うことが目的。未署名配布時の
   Gatekeeper 問題（`docs/recipes/tauri-desktop-app.md` 6項）には踏み込まない
-- **Windows / Linux での動作保証** — 下記制約を参照
+- **Windows / Linux での無条件の動作保証** — 下記制約を参照。ただし spike の結果
+  （5.1）により、ビルド・透過・最前面は Windows で実機確認済み、ドラッグ（3.1）は
+  Windows・Linux(X11) を対象に自前実装する方針になった。Linux(Wayland) の
+  ドラッグと、Windows特有の透過合成の視覚的ノイズ（既知課題、app/PROVENANCE.md
+  参照）は対象外・未解決のまま残る
 
 ## 5. 制約とリスク
 
@@ -293,6 +318,22 @@ SDK は3デスクトップとも実装している（macOS が最深、Windows �
 2. 透過・最前面のウィンドウが macOS で実際に出るか。出ないなら SDK バージョンを特定して固定する
 3. 同じことを Windows で確認する
 4. 同じことを Linux で確認する
+
+#### spike 進捗（2026-07-29、Windows機で実施）
+
+1. **済**: npm公開版 `@native-sdk/cli`（0.4.0〜0.6.1 全バージョン）では
+   `app/app.zon` の `.floating`/`.transparent` が unexpected field で `native build` が
+   失敗することを確認。原因は上流petdex自身も同じで、npm版ではなく
+   `Railly/native@feat/floating-window-0.5.3`（commit `65d4885`）から自前ビルドした
+   CLI を使う必要がある（`app/PROVENANCE.md` に固定内容を記録済み）。このCLIでは
+   `native build app` 成功
+2. **未**: macOS での実機確認はまだ（上流CIは同じピンでmacOS/Linuxも通しているため
+   通る可能性は高いが未検証）
+3. **済**: Windows実機で確認。`WS_EX_TOPMOST`/`WS_EX_LAYERED` が実際に設定され、
+   実デスクトップキャプチャで背景越しに他ウィンドウが透けることを確認。ただし
+   透過領域に視覚的ノイズが乗る既知課題あり（原因未特定、app/PROVENANCE.md）。
+   また、つまみドラッグ（3.1）が機能しないことが判明（3.1のスコープ拡張を参照）
+4. **未**: Linux実機確認はまだ
 
 #### OS別の既知のギャップ（1〜4が通った場合に効いてくる）
 

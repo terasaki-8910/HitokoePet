@@ -4,121 +4,140 @@
 
 </div>
 
-# claude-pipeline-template
+# HitokoePet
 
-A **GitHub template repository** for driving ONE project from a rough idea to a
-gated, tested result with Claude Code. Multiple projects run in parallel simply as
-separate repos (no shared state). Ralph-style iteration is used *inside* the build
-stage only, bounded and gated by tests -- not as an ungated overnight loop.
+A desktop pet that reacts to Claude Code session state. One pet represents every session, announces task completion with its voice, and lip-syncs (compatible with the Codex pet atlas spec).
 
-## Files
-- `pipeline.yaml`  -- declarative spec (source of truth). Keep in sync with run.sh.
-- `scripts/run.sh` -- POSIX driver: advances stages, stops at human gates (notifies).
-- `scripts/gates.sh` -- machine gates (tests / lint / ui). Customize per project.
-- `prompts/0X-*.md` -- the "contract" for each stage.
-- `CLAUDE.md`      -- project memory (imports your global UI rules).
-- `.claude/settings.json` -- SCOPED permissions (see Safety). Not global skip-permissions.
-- `Makefile`       -- optional shortcuts (`make plan`, `make build`, ...).
+This project consists of **two deliverables with different supported environments**. Do not conflate them.
 
-## One-time GLOBAL setup (per machine, NOT in this repo)
-1. Stop the git co-author trailer everywhere:
-   `~/.claude/settings.json`  ->  { "includeCoAuthoredBy": false }
-2. Shared UI direction across all projects:
-   copy `docs/ui-rules.starter.md` to `~/.claude/rules/ui.md` and refine it over time.
-   `~/.claude/CLAUDE.md` / `~/.claude/rules/` load in every project; scope the UI rule
-   to frontend globs so it only loads for UI work (see the rules-directory docs).
+| Deliverable | What it is | Supported environments |
+| --- | --- | --- |
+| `app/` | The pet itself (drag / multi-session aggregation / lip-sync / idle-CPU reduction / bubble tap) | Decided by the spike. Currently verified on real Windows hardware for build, always-on-top, and transparency (with a known noise artifact in the transparent region). macOS / Linux unverified |
+| `voice/` | Voice-notification hook (speaks on completion via the Stop hook) | macOS / Ubuntu / NixOS / Windows |
 
-## Per-project use
-1. On GitHub: make this a Template repository (Settings -> Template repository).
-2. For each new project: "Use this template" -> new repo -> clone.
-3. In `CLAUDE.md`, set ONLY the project name and a one-line purpose by hand (leave the
-   test/lint commands blank -- intake fills them once the stack is chosen, for you to
-   confirm). Output language is set in the `Language` field (default English, separate
-   from the chat language). If it has a UI, run `touch state/has_ui`.
-4. Run the pipeline:  `sh scripts/run.sh all`   (or stage by stage: `... intake`, etc.)
-   Intake is GUIDED-CHOICE: start from a one-line description; Claude offers options at
-   each decision and you just pick (high-impact decisions first, details later). You can
-   always specify your own instead.
-5. At the end of intake, Claude PROPOSES per-project tools (MCP/plugins/skills). On your
-   approval it writes `state/TOOLING.md` (the proposal) and `state/init-tools.sh` (the add
-   commands). To install, review them and run `sh state/init-tools.sh` YOURSELF (never auto).
-   Intake also proposes **project-specific .gitignore entries** (so large fixtures/generated
-   files aren't swept into the build's `git add -A`).
-6. (Optional) `sh scripts/run.sh slim` -- untrack + gitignore the **pipeline machinery**
-   (`scripts/`, `prompts/`, `pipeline.yaml`, `Makefile`, `docs/ui-rules.starter.md`) in THIS
-   project, so git holds only the deliverable (the machinery stays on disk and still runs).
-   Finish with `git commit`. Refused on the template itself (which must track everything to
-   distribute via "Use this template").
+`app/` is a subtree import of upstream [petdex](https://github.com/crafter-station/petdex)'s `packages/petdex-desktop-native` (MIT, see `app/PROVENANCE.md`), plus this project's own features.
 
-## Stages (gates)
-0 intake (H, once: freeze spec + propose per-project tools -> `TOOLING.md` / `init-tools.sh`)
-1 criteria (H)  2 design_gate (UI only, H, once)
-3 plan (skim)  4 build (machine gates, per worktree, sequential by default)
-5 feature_accept (machine + light H, LOCAL merge)  6 integration_accept (machine + H, once)
+## Requirements
 
-## Progress / recovery
-- `sh scripts/run.sh status` -- shows which stages are done (`[x]`) and the **exact command
-  to continue**. Each stage records `state/done/<stage>` once its human gate passes (design
-  shows `[-] n/a` when there is no UI). One glance tells you how far you got and what's next.
-- On a gate failure you get a **repair menu**: `1) auto` (repair until it passes) / `2) hybrid`
-  [default/Enter, repairs a few times then hands to you] / `3) stop` (**opens an interactive Claude
-  seeded with the error** so you fix it, then re-gates after `/exit`). auto/hybrid feed the failing
-  output to an agent (real debugging, not blind retry); stop on no-progress; weakening/deleting tests
-  to force a pass is forbidden.
-- At **DONE** the pipeline prints **NEXT STEPS**: the env vars/secrets you must set (extracted from
-  SPEC), external tools, usage (see README), and how to run the tests integration skipped.
-- `sh scripts/run.sh reset` -- **recover from a failure**: clears build worktrees, `feature/*`
-  branches and checkpoints, keeping spec/criteria/plan (SPEC/ACCEPTANCE/PLAN/tests/gates).
-  Then `from build` rebuilds cleanly.
+- **Native SDK (`@native-sdk/cli`)** — required to build and test the pet.
+  The **published npm versions (0.4.0–0.6.1) do not work**: they reject `app/app.zon`'s
+  `.floating` / `.transparent` as an unexpected field and `native build` fails.
+  You need a CLI built yourself from `Railly/native@feat/floating-window-0.5.3`
+  (commit `65d4885`); the pin is recorded in `app/PROVENANCE.md`. The SDK is pre-1.0
+  and expected to introduce breaking changes.
+- **An audio-playback command** — `voice/` auto-detects and uses one of `afplay` /
+  `pw-play` / `paplay` / `ffplay` / `powershell.exe` / `aplay`. On a machine with none
+  of them (headless), it stays silent and does nothing.
+- **Codex pet atlas assets** — place the spritesheet and `pet.json` below under
+  `~/.codex/pets/<id>/`.
+- **(optional) `shellcheck`** — used to lint the `voice/` shell scripts.
 
-## Optional command: prior-art survey (before build)
-`sh scripts/run.sh survey` -- before building from scratch, SEARCH for similar existing
-projects and present them (no naming repos from memory = no hallucination). Not part of
-`all`. Choose: build from scratch (default) or adopt one as a base. Adopting records
-`state/BASE.md` but copies no code -- an adopted base still passes the normal criteria/
-build gates and its license is yours to satisfy (existing != trusted).
-**Requires** WebSearch enabled (`.claude/settings.json` currently denies WebFetch).
+### Spritesheet spec (inherited from upstream, read unmodified)
 
-## Optional command: automation recommender (after build)
-`sh scripts/run.sh recommend` -- analyzes the **finished code** and PROPOSES Hooks / MCP /
-subagents / skills (proposal-only, written to `state/RECOMMENDATIONS.md`; you decide what to
-adopt). Uses the `claude-code-setup` plugin's `automation-recommender` skill if installed,
-else a built-in equivalent. **Runs automatically at DONE** (`RECOMMEND=0` to disable). It needs
-existing code, so it lives after build, not at intake.
+- 8 columns × 9 rows, 192×208px cells, 1536×1872px overall, transparent PNG/WebP
+- Rows = states, columns = frames. Leftover cells are fully transparent
+- Row order: `idle`(6) / `running-right`(8) / `running-left`(8) / `waving`(4) /
+  `jumping`(5) / `failed`(8) / `waiting`(6) / `running`(6) / `review`(6)
+- Layout: `pet.json` + `spritesheet.webp` under `~/.codex/pets/<id>/`
 
-## Models
-Spec/criteria = Opus, design/build = Sonnet. Set per stage via env
-(MODEL_BUILD=sonnet etc.). `opus-plan` is an interactive mode, not a headless model
-string -- for headless `plan`, MODEL_PLAN stays a real model. Fable is MANUAL escalation
-only (write the blocker to state/BLOCKED-*.md and escalate by hand); never automated,
-because some Fable queries route to Opus and it has availability/safeguard caveats.
+## Setup
 
-## Safety (important)
-- Each feature builds in an isolated `git worktree`; that isolation is the safety boundary.
-- `.claude/settings.json` grants a SCOPED allowlist and denies push / rm -rf. Do NOT run
-  `--dangerously-skip-permissions` on your main machine; if you ever do, keep it inside a
-  worktree/sandbox only.
-- No push by default -- everything is local git.
+1. **Build the pet** (using the pinned CLI):
 
-## How run.sh calls claude (portable, same for every project)
-run.sh uses the documented, stable forms -- no per-machine tweaking:
-- interactive (intake): `claude "<prompt>"` -- opens the REPL and sends it as message 1.
-- headless (criteria/plan/build, ...): `claude -p "<prompt>"`.
-Permissions are unified via the scoped allowlist in `.claude/settings.json`. If a future
-CLI changes these core flags, fix them in ONE place (`claude_interactive` / `claude_run`)
--- a template edit, not a per-machine one. `--model` is passed per stage via env vars.
+   ```sh
+   native build app
+   ```
 
-## Run-time environment variables (watch progress / control cost)
-- `INTERACTIVE=1` -- open criteria/design/plan in the **Claude Code TUI instead of
-  headless**: you see progress, get notifications, can steer mid-run, and `/exit` to
-  continue. Default 0 = headless/unattended. **intake is always TUI; build is always
-  headless** (it runs each feature in a worktree). Example:
-  `INTERACTIVE=1 sh scripts/run.sh from plan`
-- `REPAIR_ITERS` (default 4) / `REPAIR_HARD_CAP` (default 12) -- auto-repair attempt caps on a
-  gate failure (hybrid repairs REPAIR_ITERS times then hands to you; hard cap is the ceiling).
-- `PARALLEL=1` -- build features concurrently (default sequential = safer for cost/kill).
-- `PERMISSION_MODE` (default acceptEdits) -- headless permission mode.
-- `MODEL_*` (INTAKE/CRITERIA/DESIGN/PLAN/BUILD) -- per-stage model.
-- Input notifications: human gates (approvals, the plan Enter-prompt) fire a macOS banner,
-  **suppressed while the terminal is frontmost** (you can already see it). `NOTIFY_ALWAYS=1`
-  to always banner.
+   This yields the persistent desktop pet. Run `native doctor` to diagnose the
+   environment first if the build does not go through.
+
+2. **Register the voice hook with Claude Code** — add the `voice/` script to
+   `~/.claude/settings.json` under `hooks.Stop[].hooks[]`. It fires **only on the `Stop`
+   hook** (`SubagentStop` is out of scope).
+
+   > Do not reuse a Codex-oriented script. Claude Code's Stop payload has no `.type`
+   > field, so `jq -r '.type'` returns `null`. The failure mode is that it looks
+   > installed and working while never playing a sound (see SPEC 3.3.1).
+
+3. **(optional) Enable lip-sync** — place a mouth layer `mouth.png` next to the pet.
+   A pet without one works normally with no lip-sync (never an error). The amplitude is
+   read from an RMS envelope pre-computed next to the WAV (`done.wav` + `done.rms`).
+
+4. **(optional) Configure the home-server TTS (L3)** — only on a cache miss, query the
+   home server's TTS over Tailscale. If the home server is down, fall back to the L1
+   generic WAV.
+
+## Usage / behavior
+
+- **One pet represents everything.** It reads `~/.claude/sessions/<pid>.json` and folds
+  all sessions into a single display state by priority `waiting` > `busy` > `idle`. More
+  sessions never add more pets. If schema validation fails, this feature is disabled and
+  the pet keeps working via the existing hook path (graceful degradation).
+- **Drag.** While the mouse button stays down, a single drag state is held regardless of
+  velocity (motion never stops even when you move slowly or grab and hold still). On
+  release, throw physics kicks in and the pet returns to `waving` after decelerating.
+  Window follow works on macOS (already implemented) plus Windows (`SetWindowPos`) and
+  Linux X11 (`XMoveWindow`); on Linux Wayland it does nothing.
+- **Completion voice.** The `Stop` hook plays an utterance. Tiered design:
+
+  | Tier | Content | Runs on |
+  | --- | --- | --- |
+  | L1 | Fixed WAV per event kind | Each machine |
+  | L2 | Cache keyed by the phrase hash (`~/.cache/hitokoe/<sha1>.wav`) | Each machine |
+  | L3 | On cache miss only, the home server's TTS over Tailscale | Home server |
+
+  To keep notifications from overlapping when several projects run at once, playback is
+  serialized with an atomic `mkdir` lock. If the lock wait exceeds a limit, it gives up
+  and exits 0 (so hook invocations do not pile up).
+- **Lip-sync.** It reads the `done.rms` envelope and deterministically picks a mouth
+  shape (closed / half / open). It never observes the playing audio and touches no audio
+  device or recording API; the same WAV always produces the same mouth motion.
+- **Bubble tap.** Tapping the speech bubble moves focus to the terminal tab where the
+  aggregation winner (the session whose state is currently shown) is running, so
+  "there's a permission prompt → tap the bubble → jump to that terminal" is a straight
+  line. Verified on macOS + iTerm2. On an unsupported terminal it does nothing.
+
+## Constraints
+
+- **The Native SDK is pre-1.0.** A pinned, self-built CLI is required (see Requirements).
+- **`app/`'s supported environments are the spike's output**, not an unconditional
+  guarantee. The transparent window is verified on real Windows hardware but has a known
+  noise artifact in the transparent region; macOS / Linux are unverified.
+- **A system tray** exists on macOS / Windows but not Linux. `close_policy = "hide"`
+  requires the `tray` capability on Windows and is rejected at build time on Linux.
+- **Terminal focus (bubble tap) is guaranteed only on macOS + iTerm2.** Ghostty /
+  WezTerm / Alacritty / kitty are uninvestigated.
+- **Dependence on an internal path.** `~/.claude/sessions/` is a non-public internal
+  path, so if its schema changes the aggregation feature is disabled and the pet keeps
+  running.
+
+## Out of scope (explicitly not built)
+
+- Microphone input / STT / prompt injection into Claude Code
+- Reading out Claude's response bodies
+- One pet per session (N pets) / a session-list panel
+- Installing a local TTS runtime on each machine (generation is pushed to the L3 home server)
+- Guaranteed support for terminal emulators other than iTerm2
+- Terminal focus on Windows / Linux
+- Viseme-based lip-sync
+- New features for Codex / Gemini CLI / opencode (upstream support is not broken, but not extended)
+- A PR to upstream (not in v1)
+- Code signing / notarization / release distribution
+- Unconditional operation on Windows / Linux (Wayland drag and the Windows transparency noise remain unresolved)
+
+## Developed via the gated pipeline
+
+This project is built stage by stage through a gated pipeline. This README is itself an
+artifact generated from SPEC.md, never hand-authored.
+
+```sh
+sh scripts/run.sh from <stage>      # advance from a given stage
+INTERACTIVE=1 sh scripts/run.sh from <stage>   # run in the TUI instead of headless
+```
+
+- Stage (gate) definitions live in `pipeline.yaml`.
+- Pass/fail criteria live in `ACCEPTANCE.md`.
+- Tests: `native test app`
+- Lint: `native check app --strict && scripts/gate-lint.sh`
+  (`native check` alone is not enough: this app has zero `.native` markup, so
+  no-emoji / design-tokens-only / a11y are enforced by `scripts/gate-lint.sh`)

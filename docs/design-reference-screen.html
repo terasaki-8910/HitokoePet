@@ -1,0 +1,139 @@
+<!doctype html>
+<!--
+  Stage 2 design gate — representative screen (reference only, not shipped UI).
+  Settings → Appearance, dark theme. Reproduces the two existing rows byte-for-byte
+  from app/src/main.zig:2002-2024, plus the one new row this project adds ("Voice").
+  Values come from docs/design-tokens.md, which is read out of petdexTokens()
+  (app/src/main.zig:209) and settingsView (app/src/main.zig:1924) — nothing here is invented.
+  The dashed outline + "(new)" label on the Voice row are review annotations for this
+  mock only; the real row ships with no visual distinction from the others.
+-->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>HitokoePet — design gate reference screen</title>
+<style>
+  :root {
+    /* petdexTokens(), dark branch (main.zig:218-225) */
+    --background: rgb(12, 12, 15);
+    --surface: rgb(25, 25, 28);
+    --text: rgb(237, 237, 238);
+    --text-muted: rgb(156, 158, 168);
+    --accent: rgb(137, 163, 255);
+
+    /* settingsView spacing/type vocabulary (main.zig:1924-2037) */
+    --radius-md: 8px; /* approx: exact value resolved by upstream theme(), unmodified */
+    --row-padding: 12px;
+    --row-gap: 12px;
+    --section-gap: 10px;
+    --font-size-lg: 17px;   /* .lg  — section headings */
+    --font-size-base: 14px; /* default — row labels */
+    --font-size-sm: 12px;   /* .sm  — row descriptions */
+  }
+
+  body {
+    margin: 0;
+    padding: 32px;
+    background: var(--background);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", sans-serif;
+  }
+
+  .frame { max-width: 420px; margin: 0 auto; }
+
+  h1 {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    margin: 0 0 var(--section-gap) 0;
+  }
+
+  .panel {
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    margin-bottom: 8px;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: var(--row-gap);
+    padding: var(--row-padding);
+  }
+
+  .row .text { flex-grow: 1; }
+
+  .label { font-size: var(--font-size-base); margin: 0; }
+
+  .description {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    margin: 2px 0 0 0;
+  }
+
+  /* switch_control, visual approximation only */
+  .switch {
+    width: 36px;
+    height: 20px;
+    border-radius: 10px;
+    background: var(--accent);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px; right: 2px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--background);
+  }
+  .switch.off { background: rgb(60, 60, 64); }
+  .switch.off::after { right: auto; left: 2px; }
+
+  /* review-only annotation, not part of the shipped design */
+  .new-row {
+    outline: 1px dashed var(--accent);
+    outline-offset: -1px;
+  }
+  .new-tag {
+    font-size: var(--font-size-sm);
+    color: var(--accent);
+  }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <h1>Appearance</h1>
+
+    <div class="panel">
+      <div class="row">
+        <div class="text">
+          <p class="label">Pet size</p>
+          <p class="description">Adjust the size of your pet</p>
+        </div>
+        <div style="width:100px;height:4px;border-radius:2px;background:var(--text-muted);flex-shrink:0;"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row">
+        <div class="text">
+          <p class="label">Show messages</p>
+          <p class="description">Agent activity bubbles over the pet</p>
+        </div>
+        <div class="switch"></div>
+      </div>
+    </div>
+
+    <div class="panel new-row">
+      <div class="row">
+        <div class="text">
+          <p class="label">Voice <span class="new-tag">(new)</span></p>
+          <p class="description">Play a sound and animate the mouth when a session finishes</p>
+        </div>
+        <div class="switch"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
