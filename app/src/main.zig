@@ -633,6 +633,131 @@ const physics_min_vel: f64 = 65;
 const physics_max_duration_ms: u32 = 900;
 const sample_window_ms: i64 = 100;
 
+// ------------------------------------------------------------- pure-core
+// SPEC 5.4 / PLAN「pure-core」。状態選択・集約・口形決定・端末フォーカスの判断を
+// main.zig 本体の可変状態から切り離した純粋関数として提供する。ここでは配線
+// （呼び出し側の置き換え）は行わない —— それぞれ drag-wiring / session-aggregation /
+// bubble-tap-focus / mouth-compositing の各フィーチャの仕事。契約は
+// app/src/hitokoe_test.zig（criteria 段階の RED）を参照。
+
+// --- A. つまみ保持（SPEC 3.1 / ACCEPTANCE A） -------------------------------
+
+pub const Velocity = struct { x: f64, y: f64 };
+
+/// 押下中は速度に依らず単一の状態を保持する（片方向のみ、.running-left は返さない）。
+pub fn dragState(vel: ?Velocity, primary_down: bool) ?State {
+    _ = vel;
+    if (!primary_down) return null;
+    return .@"running-right";
+}
+
+/// リリース時の投擲突入判定。現状の閾値（|vx|<1 かつ |vy|<1 で不突入）を保つ。
+pub fn enterThrow(vel: Velocity) bool {
+    return @abs(vel.x) >= 1 or @abs(vel.y) >= 1;
+}
+
+/// 減速完了（速度 < physics_min_vel）または最大時間超過で投擲終了。
+pub fn throwEnded(elapsed_ms: u32, speed: f64) bool {
+    return elapsed_ms >= physics_max_duration_ms or speed < physics_min_vel;
+}
+
+/// 投擲終了後に戻る状態。
+pub const post_throw_state: State = .waving;
+
+// --- B. 複数セッションの集約（SPEC 3.2 / ACCEPTANCE B） ---------------------
+
+pub const Pid = i32;
+
+pub const Status = enum { busy, idle, waiting, unknown };
+
+pub const Session = struct {
+    status: Status = .unknown,
+    pid: Pid = 0,
+    cwd: []const u8 = "",
+    name: []const u8 = "",
+    waiting_for: []const u8 = "",
+};
+
+/// 優先度 waiting > busy > idle。未知の status は無視して集約する。
+pub fn aggregate(sessions: []const Session) State {
+    var any_waiting = false;
+    var any_busy = false;
+    for (sessions) |s| {
+        switch (s.status) {
+            .waiting => any_waiting = true,
+            .busy => any_busy = true,
+            .idle, .unknown => {},
+        }
+    }
+    if (any_waiting) return .waiting;
+    if (any_busy) return .running;
+    return .idle;
+}
+
+fn sessionStatus(s: []const u8) Status {
+    if (std.mem.eql(u8, s, "busy")) return .busy;
+    if (std.mem.eql(u8, s, "idle")) return .idle;
+    if (std.mem.eql(u8, s, "waiting")) return .waiting;
+    return .unknown;
+}
+
+/// 必須キー（status/cwd/name）を欠くJSONは例外を投げず null（劣化動作）。
+/// 返す cwd/name は入力 `json` を借用する（hook_server.jsonStringPub と同じ
+/// 「未エスケープ・フラットJSON前提」の軽量抽出を流用する）。
+pub fn parseSession(json: []const u8) ?Session {
+    const status_str = hook_server.jsonStringPub(json, "status") orelse return null;
+    const cwd = hook_server.jsonStringPub(json, "cwd") orelse return null;
+    const name = hook_server.jsonStringPub(json, "name") orelse return null;
+    const pid: Pid = if (hook_server.jsonNumberPub(json, "pid")) |n| @intFromFloat(n) else 0;
+    return .{ .status = sessionStatus(status_str), .pid = pid, .cwd = cwd, .name = name };
+}
+
+// --- D. 口パク（SPEC 3.4 / ACCEPTANCE D） -----------------------------------
+
+pub const mouth_shape_count: u8 = 3;
+const mouth_low_threshold: f32 = 0.15;
+const mouth_high_threshold: f32 = 0.5;
+
+/// 振幅から口形を決める。NaN・負値・無音（0）はすべて閉口(0)に倒す。
+pub fn mouthFrame(rms: f32) u8 {
+    if (!(rms > 0)) return 0;
+    if (rms >= mouth_high_threshold) return mouth_shape_count - 1;
+    if (rms >= mouth_low_threshold) return 1;
+    return 0;
+}
+
+/// 事前計算エンベロープの範囲外アクセスは無音（0）に倒す。
+pub fn rmsAt(env: []const f32, i: usize) f32 {
+    if (i >= env.len) return 0;
+    return env[i];
+}
+
+/// reduce_motion 有効時は口パクを抑制し、常に閉口を返す。
+pub fn mouthFrameMotion(rms: f32, reduce_motion: bool) u8 {
+    if (reduce_motion) return 0;
+    return mouthFrame(rms);
+}
+
+// --- H. 吹き出しタップの対象（SPEC 3.6 / ACCEPTANCE H） ---------------------
+
+/// aggregate と同一の優先度規則（waiting > busy）で対象 pid を選ぶ。0件は null。
+pub fn focusTarget(sessions: []const Session) ?Pid {
+    var busy_pid: ?Pid = null;
+    for (sessions) |s| {
+        if (s.status == .waiting) return s.pid;
+        if (s.status == .busy and busy_pid == null) busy_pid = s.pid;
+    }
+    return busy_pid;
+}
+
+/// `ps -o tty= -p PID` の出力を解釈する。tty 無し（"?"/"??"）・空は null。
+pub fn parseTty(ps_out: []const u8) ?[]const u8 {
+    const trimmed = std.mem.trim(u8, ps_out, " \t\r\n");
+    if (trimmed.len == 0) return null;
+    if (std.mem.eql(u8, trimmed, "?") or std.mem.eql(u8, trimmed, "??")) return null;
+    return trimmed;
+}
+
 pub const Effects = native_sdk.Effects(Msg);
 
 const frame_timer_key: u64 = 1;

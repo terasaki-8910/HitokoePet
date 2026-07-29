@@ -77,3 +77,16 @@ commit: 65d4885cb5f76a5d1f33cace56b93a898f7b2cb3
 | `app/src/hitokoe_test.zig`（新規） | criteria 段階（Stage 1）の受け入れテスト。A/B/D/H の純粋関数を参照する RED テスト。build が純粋関数を切り出すまでコンパイルできない | SPEC 5.4「状態選択・集約・口形決定は純粋関数に切り出してテストする」。`main.zig` にテストが0個のため |
 | `app/src/main.zig` 末尾 | `test { _ = @import("hitokoe_test.zig"); }` の集約子1つのみ追加。フィーチャコードは未変更 | 上記テストを `native test` の探索対象に入れるため。`test` ブロックは非テストビルドに無影響 |
 | （build 以降で追記）3.1 のWindows/Linux(X11) moveWindow実装は app/ 本体ではなく、固定した Native SDK フォーク側への追加パッチになる見込み。置き場所は plan 段階で決定 | | |
+| `app/src/main.zig`（`physics_max_duration_ms` の直後、`Effects` 定義の直前） | フィーチャ `pure-core`（PLAN.md）。`Velocity`/`Pid`/`Status`/`Session` 型と `dragState`/`enterThrow`/`throwEnded`/`post_throw_state`/`aggregate`/`parseSession`/`mouthFrame`/`mouth_shape_count`/`rmsAt`/`mouthFrameMotion`/`focusTarget`/`parseTty` を追加。既存の `update`/`dragging` 分岐など呼び出し側は未変更（配線は別フィーチャ drag-wiring 等の仕事）。`parseSession` は `hook_server.jsonStringPub`/`jsonNumberPub`（既存の軽量JSON抽出）を再利用 | SPEC 5.4「状態選択・集約・口形決定・端末フォーカスを純粋関数に切り出す」。ACCEPTANCE A1-A5/B1-B7/D4-D11/H1-H2/H6-H8/F3/G4 |
+
+**build 段階の環境メモ（pure-core, 2026-07-29）**: この Windows 実行環境にグローバル導入済みの
+`native`（0.6.1, commit `a7509a7`）は npm 公開版で、`app/app.zon` の `floating`/`transparent`
+を未知フィールドとして拒否する（`error[manifest.invalid]: ... unexpected field 'floating'`）。
+本セクション冒頭に固定した `Railly/native@65d4885` フォークがこの sandboxed worktree には
+無く、ネットワーク経由の取得（`git clone`/`git ls-remote`）もこの実行環境のサンドボックスで
+承認されなかったため、`native test app` を実行しての機械判定はこの build セッションでは
+行えていない。代わりに、追加した純粋関数群（native_sdk に非依存）と
+`app/src/hitokoe_test.zig` を丸ごと隔離ディレクトリへ複製し、`zig test`（0.16.0、単体）で
+24件のテスト（A1-A5/B1-B6/B6b/B7/D4-D8/D10/D11/H1/H1b/H2/H6/H8）が全て通ることを確認した
+（複製は検証後に削除、コミットしていない）。`native test app` そのものでの確認は、固定
+フォークを導入できる環境で改めて行うこと。
