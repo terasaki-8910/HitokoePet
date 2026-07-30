@@ -47,10 +47,11 @@ hook_event=$(printf '%s' "$payload" | sed -n 's/.*"hook_event_name"[[:space:]]*:
 mkdir -p "$HITOKOE_CACHE_DIR" 2>/dev/null
 
 LOCK="$HITOKOE_CACHE_DIR/.lock"
-start=$(date +%s)
+tries=0
+max_tries=$((HITOKOE_LOCK_TIMEOUT * 10))
 while ! mkdir "$LOCK" 2>/dev/null; do
-  now=$(date +%s)
-  [ $((now - start)) -ge "$HITOKOE_LOCK_TIMEOUT" ] && exit 0
+  tries=$((tries + 1))
+  [ "$tries" -ge "$max_tries" ] && exit 0
   sleep 0.1
 done
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT INT TERM
