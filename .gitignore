@@ -1,6 +1,10 @@
 state/
 *.log
 
+# 固定した Native SDK フォーク（0.5.3, floating-window）。self-build した native
+# バイナリと SDK ソース。上流由来の大きなツリーなのでコミットしない（app/PROVENANCE.md）。
+tools/native-sdk-fork/
+
 # Native SDK のビルド生成物（ルートから叩いた場合。app/ 配下は app/.gitignore が既にカバー）
 zig-out/
 .zig-cache/

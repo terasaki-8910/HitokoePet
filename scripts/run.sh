@@ -8,6 +8,21 @@ STATE="$ROOT/state"; PROMPTS="$ROOT/prompts"
 mkdir -p "$STATE/logs" "$STATE/worktrees"
 MAIN=$(git -C "$ROOT" symbolic-ref --short HEAD 2>/dev/null || echo main)
 
+# このアプリは固定した Native SDK フォークの `native`（0.5.3, floating-window）が必須。
+# 公開 npm の @native-sdk/cli（0.6.1）は app.zon の .floating/.transparent を
+# マニフェストスキーマに持たず（app/PROVENANCE.md 参照）、全ゲートを "error: ParseZon"
+# で落とす。フォークの self-build バイナリを PATH 先頭に置き、ゲートスクリプト内の
+# bareword `native` が npm 版ではなくこちらを掴むようにする。フォークは git 管理外
+# （tools/native-sdk-fork/ は .gitignore 済み）。無ければ下記手順で再ビルドする。
+NATIVE_FORK_BIN="$ROOT/tools/native-sdk-fork/zig-out/bin"
+if [ -x "$NATIVE_FORK_BIN/native.exe" ] || [ -x "$NATIVE_FORK_BIN/native" ]; then
+  PATH="$NATIVE_FORK_BIN:$PATH"; export PATH
+else
+  echo "[run.sh] WARNING: pinned Native SDK fork not found at $NATIVE_FORK_BIN" >&2
+  echo "[run.sh]          gates calling \`native\` fall back to PATH (likely npm 0.6.1 -> ParseZon)." >&2
+  echo "[run.sh]          Rebuild it: clone github.com/Railly/native @ feat/floating-window-0.5.3 (65d4885), \`zig build cli\`." >&2
+fi
+
 # One Ctrl+C tears everything down. build spawns child agents; without this the loop
 # and its background jobs can survive SIGINT and keep spending your quota.
 trap 'trap - INT TERM; echo; echo "[run.sh] interrupted -- stopping." >&2; kill 0 2>/dev/null' INT TERM
