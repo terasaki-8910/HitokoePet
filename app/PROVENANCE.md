@@ -90,6 +90,11 @@ unified diff を保存済み。フォークを再取得・再ビルドしたら�
 | `src/platform/windows/webview2_host.cpp` + `root.zig` | **`native_sdk_windows_move_window`** を新規実装（app駆動ドラッグ `fx.moveWindow` の Windows サービス。SetWindowPos + 作業領域クランプ + カーソル/左ボタン報告。A7-A10 相当）。`.services.move_window_fn` に配線 | ✅ 合成ドラッグで窓がカーソルに完全追従（dx/dy 一致） |
 | `src/platform/windows/webview2_host.cpp` | **`emitMenuAcceleratorForWindow`** を追加し WM_KEYDOWN に配線。chromeless で無効だったメニューアクセラレータ（Ctrl+W=Close、Ctrl+,=Settings）を発火 | ✅ Ctrl+W でペットが閉じる |
 | `src/platform/windows/webview2_host.cpp` | **`showWindowContextMenu`** を追加し gpu_surface WM_RBUTTONUP に配線。Win32 で非対応のコンテキストメニューを、app メニュー（Settings/Close Pet）を TrackPopupMenu で表示して代替 | ✅ 右クリックでメニュー（#32768）が出る |
+| `src/platform/windows/webview2_host.cpp` + `root.zig` | **`native_sdk_windows_resize_window`** を新規実装し `.services.resize_window_fn` に配線（Windows未実装だった。macOS の `resizeWindow` 相当。bottom_center アンカーで SetWindowPos）。app 起動時の `fx.resizeWindow`（窓をスプライトの実寸 192x208×scale に fit）が Windows では無言で失敗し、窓が app.zon 宣言値のまま（230x250、実際のスプライトより大きい）だったのが原因 | ✅ 窓が 134x146（192x208×scale0.7）にきちんと縮む |
+| `src/platform/windows/webview2_host.cpp` | **chromeless の `style` から `WS_SYSMENU`/`WS_MINIMIZEBOX` を削除**（`WS_POPUP` のみに）。このWindows実機では `WS_CAPTION` 無しで `WS_SYSMENU` を付けても「何も描かれない」という元コードの前提が外れ、実際は非クライアント領域が約20px追加され、キャプション相当の帯（タイトル文字入り）が見えていた | ✅ `GetWindowRect` == `GetClientRect`（非クライアント領域ゼロ）を実測確認 |
+| `src/platform/windows/webview2_host.cpp` | **`applyMenusToWindow` を chromeless 窓では `SetMenu` しないよう変更**（`windowIsChromeless` で早期return）。上記フラグ修正後も20pxの帯が残ったのは、app.zon の `.menus`（"Pet"）が無条件で Win32 メニューバーとして貼られていたため（"Pet" の文字はこのメニューのタイトルそのもの）。メニュー項目自体（`host->menus`/`menu_commands`）は `native_sdk_windows_set_menus` が独立して登録するため、右クリックメニューとアクセラレータには影響なし | ✅ `GetMenu` が NULL、窓上部の帯が完全に消えた |
+
+窓がスプライト実寸にフィットしたことで、ドラッグの当たり判定（`main.zig:1469-1470` の「窓＝スプライト」前提）が実際の見た目と一致し、キャラ本体をつまんでドラッグできるようになった（従来は窓が大きすぎたため、当たり判定の矩形とキャラの描画位置がズレ、上部の狭い帯状の領域しか掴めなかった）。
 
 ### 未達（build 段階で継続）: 透過（背景の抜き）
 

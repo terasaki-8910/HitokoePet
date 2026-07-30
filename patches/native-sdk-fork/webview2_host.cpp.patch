@@ -1,6 +1,25 @@
 --- /c/Users/e8910/AppData/Local/Temp/claude/C--Users-e8910-Documents-HitokoePet/9956bb5d-4d92-4f46-bfc8-56adab5167e0/scratchpad/native-sdk-fork/src/platform/windows/webview2_host.cpp	2026-07-28 23:12:05.154226100 +0900
-+++ /c/Users/e8910/Documents/HitokoePet/tools/native-sdk-fork/src/platform/windows/webview2_host.cpp	2026-07-31 02:34:35.488435200 +0900
-@@ -1728,6 +1728,56 @@
++++ /c/Users/e8910/Documents/HitokoePet/tools/native-sdk-fork/src/platform/windows/webview2_host.cpp	2026-07-31 03:01:01.973746200 +0900
+@@ -1640,8 +1640,18 @@
+     return menu_bar;
+ }
+ 
++static bool windowIsChromeless(const Window &window);
++
+ static void applyMenusToWindow(Host *host, Window &window) {
+     if (!host || !window.hwnd) return;
++    /* A chromeless companion window (a borderless pet) must stay
++     * caption-less: SetMenu draws a real Win32 menu-bar ROW above the
++     * client area regardless of window style, which is exactly the
++     * unwanted "phantom bar" a chromeless window must not have. app.zon's
++     * menu items stay reachable through the right-click context menu
++     * (showWindowContextMenu) and their keyboard accelerators
++     * (emitMenuAcceleratorForWindow) instead. */
++    if (windowIsChromeless(window)) return;
+     HMENU old_menu = GetMenu(window.hwnd);
+     HMENU new_menu = buildMenuBar(host);
+     SetMenu(window.hwnd, new_menu);
+@@ -1728,6 +1738,56 @@
      return false;
  }
  
@@ -57,7 +76,7 @@
  static bool emitShortcutForHwnd(Host *host, HWND hwnd, WPARAM wparam) {
      return emitShortcutForWindow(host, windowForHwnd(host, hwnd), wparam);
  }
-@@ -2943,6 +2993,7 @@
+@@ -2943,6 +3003,7 @@
              const int button = message == WM_LBUTTONUP ? 0 : message == WM_RBUTTONUP ? 1 : 2;
              emitGpuSurfaceInput(host, *view, kGpuInputPointerUp, x, y, button, 0, 0, "", "", gpuModifierFlags());
              if (GetCapture() == hwnd) ReleaseCapture();
@@ -65,7 +84,7 @@
              return 0;
          }
          case WM_MOUSEMOVE: {
-@@ -2981,6 +3032,7 @@
+@@ -2981,6 +3042,7 @@
          case WM_KEYDOWN:
          case WM_SYSKEYDOWN: {
              if (emitShortcutForHwnd(host, GetAncestor(hwnd, GA_ROOT), wparam)) return 0;
@@ -73,7 +92,7 @@
              const std::string key = gpuSurfaceKeyName(wparam);
              if (!key.empty()) {
                  emitGpuSurfaceInput(host, *view, kGpuInputKeyDown, view->gpu_pointer_x, view->gpu_pointer_y, 0, 0, 0, key.c_str(), "", gpuModifierFlags());
-@@ -5043,6 +5095,7 @@
+@@ -5043,6 +5105,7 @@
          case WM_KEYDOWN:
          case WM_SYSKEYDOWN:
              if (host && emitShortcutForHwnd(host, hwnd, wparam)) return 0;
@@ -81,7 +100,36 @@
              break;
          case WM_COMMAND:
              if (host) {
-@@ -6003,6 +6056,68 @@
+@@ -5375,14 +5438,20 @@
+     DWORD style = WS_OVERLAPPEDWINDOW;
+     if (!window.resizable) style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
+     if (windowIsChromeless(window)) {
+-        /* Chromeless: the caption-less popup shape — no caption band,
+-         * no DWM caption buttons, nothing drawn. WS_SYSMENU and
+-         * WS_MINIMIZEBOX keep the REAL window verbs alive (taskbar
+-         * right-click, the host's close/minimize entrypoints) without
+-         * drawing anything; the resize frame stays when the window is
+-         * resizable. */
+-        style = WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX;
+-        if (window.resizable) style |= WS_THICKFRAME | WS_MAXIMIZEBOX;
++        /* Chromeless: the caption-less popup shape — no caption band, no
++         * DWM caption buttons, nothing drawn. WS_SYSMENU (and the
++         * min/max boxes that require it) were tried here for the
++         * taskbar-right-click system menu, on the assumption that
++         * WS_SYSMENU without WS_CAPTION draws nothing — it does not:
++         * measured on real Windows 11, WS_POPUP | WS_SYSMENU still grows
++         * a ~20px non-client band above the client area (a thin caption
++         * ghost with the window's title text), which is exactly the
++         * "phantom bar" a borderless companion window must not have.
++         * Plain WS_POPUP has zero non-client area. The app's own
++         * right-click menu and Ctrl+W/menu-accelerator close cover the
++         * lost taskbar-menu close entrypoint. */
++        style = WS_POPUP;
++        if (window.resizable) style |= WS_THICKFRAME;
+     }
+     /* The requested frame is a CONTENT size in LOGICAL points (the
+      * other hosts size the content area); scale it to physical pixels
+@@ -6003,6 +6072,98 @@
      return 1;
  }
  
@@ -144,6 +192,36 @@
 +        if (out_cursor_x) *out_cursor_x = (double)cursor.x;
 +        if (out_cursor_y) *out_cursor_y = (double)cursor.y;
 +    }
++    return 1;
++}
++
++/* Resize a window to a new content size (the AppKit host's
++ * native_sdk_appkit_resize_window on Win32). The pet app fits its window
++ * to the sprite's scaled size on launch and every scale change
++ * (fx.resizeWindow), so this must actually apply for the pet's drag
++ * hit-test — which assumes the window IS the sprite — to line up with
++ * what is on screen. bottom_center keeps the bottom edge and horizontal
++ * center fixed, matching AppKit's anchor (a companion sprite grows/shrinks
++ * in place on its ground line instead of hanging from the old top-left).
++ * Win32's origin is already top-left/y-down, so unlike AppKit this needs
++ * no vertical flip: keeping the bottom edge fixed means recomputing top
++ * from the new height directly. */
++int native_sdk_windows_resize_window(Host *host, uint64_t window_id, double width, double height, int anchor_bottom_center) {
++    if (!host || width <= 0 || height <= 0) return 0;
++    auto found = host->windows.find(window_id);
++    if (found == host->windows.end() || !found->second.hwnd) return 0;
++    HWND hwnd = found->second.hwnd;
++    RECT rect = {};
++    if (!GetWindowRect(hwnd, &rect)) return 0;
++    const double old_width = (double)(rect.right - rect.left);
++    const double old_height = (double)(rect.bottom - rect.top);
++    double new_left = (double)rect.left;
++    double new_top = (double)rect.top;
++    if (anchor_bottom_center) {
++        new_left = (double)rect.left + (old_width - width) / 2.0;
++        new_top = (double)rect.top + (old_height - height);
++    }
++    SetWindowPos(hwnd, nullptr, (int)lround(new_left), (int)lround(new_top), (int)lround(width), (int)lround(height), SWP_NOZORDER | SWP_NOACTIVATE);
 +    return 1;
 +}
 +
