@@ -77,3 +77,27 @@ commit: 65d4885cb5f76a5d1f33cace56b93a898f7b2cb3
 | `app/src/hitokoe_test.zig`（新規） | criteria 段階（Stage 1）の受け入れテスト。A/B/D/H の純粋関数を参照する RED テスト。build が純粋関数を切り出すまでコンパイルできない | SPEC 5.4「状態選択・集約・口形決定は純粋関数に切り出してテストする」。`main.zig` にテストが0個のため |
 | `app/src/main.zig` 末尾 | `test { _ = @import("hitokoe_test.zig"); }` の集約子1つのみ追加。フィーチャコードは未変更 | 上記テストを `native test` の探索対象に入れるため。`test` ブロックは非テストビルドに無影響 |
 | （build 以降で追記）3.1 のWindows/Linux(X11) moveWindow実装は app/ 本体ではなく、固定した Native SDK フォーク側への追加パッチになる見込み。置き場所は plan 段階で決定 | | |
+
+## 固定 Native SDK フォークへの Windows プラットフォーム改変（2026-07-31）
+
+app/ 本体ではなく**固定フォーク**（`tools/native-sdk-fork/`、[[native-cli-fork-wiring]] 参照）への
+パッチ。フォークは git 管理外なので、再現用に **`patches/native-sdk-fork/*.patch`（追跡対象）**に
+unified diff を保存済み。フォークを再取得・再ビルドしたら当て直す。原本は
+`Railly/native@feat/floating-window-0.5.3`（65d4885）。
+
+| 対象ファイル | 改変 | 判定（実機） |
+| --- | --- | --- |
+| `src/platform/windows/webview2_host.cpp` + `root.zig` | **`native_sdk_windows_move_window`** を新規実装（app駆動ドラッグ `fx.moveWindow` の Windows サービス。SetWindowPos + 作業領域クランプ + カーソル/左ボタン報告。A7-A10 相当）。`.services.move_window_fn` に配線 | ✅ 合成ドラッグで窓がカーソルに完全追従（dx/dy 一致） |
+| `src/platform/windows/webview2_host.cpp` | **`emitMenuAcceleratorForWindow`** を追加し WM_KEYDOWN に配線。chromeless で無効だったメニューアクセラレータ（Ctrl+W=Close、Ctrl+,=Settings）を発火 | ✅ Ctrl+W でペットが閉じる |
+| `src/platform/windows/webview2_host.cpp` | **`showWindowContextMenu`** を追加し gpu_surface WM_RBUTTONUP に配線。Win32 で非対応のコンテキストメニューを、app メニュー（Settings/Close Pet）を TrackPopupMenu で表示して代替 | ✅ 右クリックでメニュー（#32768）が出る |
+
+### 未達（build 段階で継続）: 透過（背景の抜き）
+
+Windows での per-pixel alpha 透過は**未実装**。原因を特定済み:
+- 透過窓でも canvas クリア色が不透明テーマ背景（`runtime/canvas_widget_display.zig:82`）。
+- present は alpha を 255 強制、透過は黒カラーキーのみ（`webview2_host.cpp` の設計コメント `:5273-5308`）。
+- `gpu_alpha_mode="premultiplied"` に変えると app が起動時 `CallbackFailed` でクラッシュ（app 側の深い改修が必要）。
+
+クリーンな透過には UpdateLayeredWindow(per-pixel alpha) への present 経路書き換え（SDK 作者が
+「アーキテクチャ書き換え」と明記）が要る。カラーキー方式（透過窓を黒クリア）は縁のガタつき・
+濃色の穴が出るため不採用。動作中の上記3機能を壊さないため、透過は独立タスクとして分離。

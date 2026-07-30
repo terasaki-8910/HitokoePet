@@ -1,0 +1,152 @@
+--- /c/Users/e8910/AppData/Local/Temp/claude/C--Users-e8910-Documents-HitokoePet/9956bb5d-4d92-4f46-bfc8-56adab5167e0/scratchpad/native-sdk-fork/src/platform/windows/webview2_host.cpp	2026-07-28 23:12:05.154226100 +0900
++++ /c/Users/e8910/Documents/HitokoePet/tools/native-sdk-fork/src/platform/windows/webview2_host.cpp	2026-07-31 02:34:35.488435200 +0900
+@@ -1728,6 +1728,56 @@
+     return false;
+ }
+ 
++/* Menu accelerators as keyboard shortcuts. app.zon menu items carry a
++ * key + modifiers (Close Pet = Ctrl+W, Settings = Ctrl+,); a chromeless pet
++ * shows no menu bar, so no accelerator table drives them. Match a key event
++ * against the declared menu items directly and fire the item's command, so
++ * the accelerators work the same as they do off the macOS menu. */
++static bool emitMenuAcceleratorForWindow(Host *host, HWND hwnd, WPARAM wparam) {
++    if (!host || host->menus.empty()) return false;
++    std::string key = shortcutKeyFromWParam(wparam);
++    if (key.empty()) return false;
++    for (const Menu &menu : host->menus) {
++        for (const MenuItem &item : menu.items) {
++            if (item.separator || item.command_id == 0 || item.key.empty()) continue;
++            if (item.key != key) continue;
++            if (!shortcutModifiersMatch(item.modifiers, false)) continue;
++            return emitMenuCommandForId(host, hwnd, item.command_id);
++        }
++    }
++    return false;
++}
++
++/* Right-click menu for a chromeless pet. The runtime's native context-menu
++ * path is off on Win32 (no show_context_menu_fn), so a right-press on the
++ * canvas would otherwise do nothing. Present the app's declared menu (app.zon
++ * `.menus` — Settings / Close Pet, the same verbs the pet's widget context
++ * menu carries) at the cursor and dispatch the pick as a menu command, the
++ * same route the accelerators and a real menu bar use. */
++static void showWindowContextMenu(Host *host, HWND hwnd) {
++    if (!host || !hwnd || host->menus.empty()) return;
++    HMENU menu = CreatePopupMenu();
++    if (!menu) return;
++    for (const Menu &group : host->menus) {
++        for (const MenuItem &item : group.items) {
++            if (item.separator) { AppendMenuW(menu, MF_SEPARATOR, 0, nullptr); continue; }
++            if (item.command_id == 0) continue;
++            UINT flags = MF_STRING;
++            if (!item.enabled) flags |= MF_GRAYED;
++            if (item.checked) flags |= MF_CHECKED;
++            std::wstring label = widen(item.label);
++            AppendMenuW(menu, flags, item.command_id, label.c_str());
++        }
++    }
++    POINT cursor = {};
++    GetCursorPos(&cursor);
++    SetForegroundWindow(hwnd);
++    UINT command_id = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, cursor.x, cursor.y, 0, hwnd, nullptr);
++    DestroyMenu(menu);
++    if (command_id != 0) emitMenuCommandForId(host, hwnd, command_id);
++    PostMessageW(hwnd, WM_NULL, 0, 0);
++}
++
+ static bool emitShortcutForHwnd(Host *host, HWND hwnd, WPARAM wparam) {
+     return emitShortcutForWindow(host, windowForHwnd(host, hwnd), wparam);
+ }
+@@ -2943,6 +2993,7 @@
+             const int button = message == WM_LBUTTONUP ? 0 : message == WM_RBUTTONUP ? 1 : 2;
+             emitGpuSurfaceInput(host, *view, kGpuInputPointerUp, x, y, button, 0, 0, "", "", gpuModifierFlags());
+             if (GetCapture() == hwnd) ReleaseCapture();
++            if (message == WM_RBUTTONUP) showWindowContextMenu(host, GetAncestor(hwnd, GA_ROOT));
+             return 0;
+         }
+         case WM_MOUSEMOVE: {
+@@ -2981,6 +3032,7 @@
+         case WM_KEYDOWN:
+         case WM_SYSKEYDOWN: {
+             if (emitShortcutForHwnd(host, GetAncestor(hwnd, GA_ROOT), wparam)) return 0;
++            if (emitMenuAcceleratorForWindow(host, GetAncestor(hwnd, GA_ROOT), wparam)) return 0;
+             const std::string key = gpuSurfaceKeyName(wparam);
+             if (!key.empty()) {
+                 emitGpuSurfaceInput(host, *view, kGpuInputKeyDown, view->gpu_pointer_x, view->gpu_pointer_y, 0, 0, 0, key.c_str(), "", gpuModifierFlags());
+@@ -5043,6 +5095,7 @@
+         case WM_KEYDOWN:
+         case WM_SYSKEYDOWN:
+             if (host && emitShortcutForHwnd(host, hwnd, wparam)) return 0;
++            if (host && emitMenuAcceleratorForWindow(host, hwnd, wparam)) return 0;
+             break;
+         case WM_COMMAND:
+             if (host) {
+@@ -6003,6 +6056,68 @@
+     return 1;
+ }
+ 
++/* App-owned window move (the AppKit host's native_sdk_appkit_move_window
++ * on Win32). The pet's drag/throw physics live in the app: each frame it
++ * calls this with a delta, reads back the applied origin plus the live
++ * cursor and primary-button state, and computes its own release velocity
++ * from the origin samples. Win32's screen space is already the
++ * MoveWindowResult convention (top-left origin, y down, physical pixels),
++ * so no axis flips — unlike AppKit. vx/vy/released stay zero: the app owns
++ * the gesture and needs no host-side velocity telemetry. Only an unknown
++ * window is an error. */
++int native_sdk_windows_move_window(Host *host, uint64_t window_id, double dx, double dy, int clamp, double *out_x, double *out_y, int *out_hit_x, int *out_hit_y, int *out_primary_down, double *out_vx, double *out_vy, int *out_released, double *out_cursor_x, double *out_cursor_y) {
++    if (!host) return 0;
++    auto found = host->windows.find(window_id);
++    if (found == host->windows.end() || !found->second.hwnd) return 0;
++    HWND hwnd = found->second.hwnd;
++    RECT rect = {};
++    if (!GetWindowRect(hwnd, &rect)) return 0;
++    const double w = (double)(rect.right - rect.left);
++    const double h = (double)(rect.bottom - rect.top);
++    double new_x = (double)rect.left + dx;
++    double new_y = (double)rect.top + dy;
++    int hit_x = 0;
++    int hit_y = 0;
++    /* Clamp keeps the whole window inside the monitor's work area (desktop
++     * minus the taskbar), matching AppKit's visibleFrame clamp. */
++    if (clamp) {
++        HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
++        MONITORINFO info = {};
++        info.cbSize = sizeof(info);
++        if (GetMonitorInfoW(monitor, &info)) {
++            const double min_x = (double)info.rcWork.left;
++            const double max_x = (double)info.rcWork.right - w;
++            const double min_y = (double)info.rcWork.top;
++            const double max_y = (double)info.rcWork.bottom - h;
++            if (new_x < min_x) { new_x = min_x; hit_x = 1; }
++            if (new_x > max_x) { new_x = max_x; hit_x = 1; }
++            if (new_y < min_y) { new_y = min_y; hit_y = 1; }
++            if (new_y > max_y) { new_y = max_y; hit_y = 1; }
++        }
++    }
++    const LONG final_x = (LONG)lround(new_x);
++    const LONG final_y = (LONG)lround(new_y);
++    /* SWP_NOZORDER preserves the topmost band so a floating pet stays above
++     * other windows through the drag and throw. */
++    if (dx != 0.0 || dy != 0.0) {
++        SetWindowPos(hwnd, nullptr, final_x, final_y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
++    }
++    if (out_x) *out_x = (double)final_x;
++    if (out_y) *out_y = (double)final_y;
++    if (out_hit_x) *out_hit_x = hit_x;
++    if (out_hit_y) *out_hit_y = hit_y;
++    if (out_vx) *out_vx = 0.0;
++    if (out_vy) *out_vy = 0.0;
++    if (out_released) *out_released = 0;
++    if (out_primary_down) *out_primary_down = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) ? 1 : 0;
++    POINT cursor = {};
++    if (GetCursorPos(&cursor)) {
++        if (out_cursor_x) *out_cursor_x = (double)cursor.x;
++        if (out_cursor_y) *out_cursor_y = (double)cursor.y;
++    }
++    return 1;
++}
++
+ /* Replace a canvas view's window-drag mirror (runtime push after layout
+  * installs whose regions changed). Rects arrive flat as x,y,w,h in the
+  * view's logical coordinates; exclusions mark the press-claiming
