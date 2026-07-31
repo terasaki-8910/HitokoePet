@@ -138,6 +138,7 @@ pub const Msg = union(enum) {
     pet_filter: canvas.TextInputEvent,
     toggle_pets_expanded,
     manifest_done: native_sdk.EffectExit,
+    wsl_whoami_done: native_sdk.EffectExit,
     pet_json_done: native_sdk.EffectExit,
     spritesheet_done: native_sdk.EffectExit,
     dismiss_install_error,
@@ -360,6 +361,15 @@ pub const InstallState = struct {
         self.error_len = written.len;
     }
 };
+
+const wsl_whoami_key: u64 = 23;
+/// WSL distro to also poll for Claude Code sessions (`wsl --list`
+/// confirmed this one on the dev machine; adjust if the distro is
+/// renamed/reinstalled). The Linux username is resolved at boot via
+/// `wsl -d <distro> -- whoami` rather than hardcoded, since usernames
+/// vary independently of the distro and Windows/WSL usernames commonly
+/// differ (they do on this machine: Windows "e8910" vs WSL "tera").
+const wsl_distro = "Ubuntu";
 
 const manifest_key: u64 = 20;
 const pet_json_key: u64 = 21;
@@ -1270,7 +1280,14 @@ const max_session_json_bytes = 1024;
 /// `.claude/sessions`（`\\wsl.localhost\<distro>\home\<user>\.claude\sessions`
 /// 等、UNC 経由で見える場合）も同じ配列に増やせる作り（WSL対応は別途）。
 var session_roots_buf: [4][512]u8 = undefined;
+/// WSL(`\\wsl.localhost\...`) は 9P 経由でネイティブ NTFS より遅く、
+/// 100ms 間隔(poll_interval_ms)そのままで叩くと SPEC 3.5 のアイドルCPU
+/// 削減方針に反する。ネイティブ側だけ毎tick、この印が付いたルートは
+/// `wsl_root_poll_every_ticks` 回に1回だけ実際に走査する。
+var session_roots_throttled: [4]bool = @splat(false);
 var session_roots_len: usize = 0;
+const wsl_root_poll_every_ticks: u32 = 20;
+var session_poll_tick_count: u32 = 0;
 
 var session_json_bufs: [max_polled_sessions][max_session_json_bytes]u8 = undefined;
 var session_list: [max_polled_sessions]Session = undefined;
@@ -1289,9 +1306,18 @@ fn sessionEntryVisit(root: []const u8, name: []const u8) void {
 
 /// 全ルートを走査して `aggregate()` にかけ、集約状態を返す。読めるものが
 /// 何も無ければ（劣化動作） `.idle` を返す — aggregate([]) と同じ結果。
+/// スロットル対象ルート（WSL）は間引いた tick でしか走査しない —
+/// 素朴に「その tick は無いものとして扱う」ので、ネイティブ側だけでは
+/// waiting にならない状況で WSL 側だけが waiting、という稀なケースでは
+/// 間引き周期（既定2秒）の間 waiting 表示が明滅し得る。busy/idle の
+/// 判定（大半のケース）には影響しない。前回値のキャッシュはしていない
+/// （複雑さに見合わないと判断）。
 fn pollAggregatedState() State {
+    session_poll_tick_count +%= 1;
+    const scan_throttled = session_poll_tick_count % wsl_root_poll_every_ticks == 0;
     session_count = 0;
-    for (session_roots_buf[0..session_roots_len]) |*root_buf| {
+    for (session_roots_buf[0..session_roots_len], session_roots_throttled[0..session_roots_len]) |*root_buf, throttled| {
+        if (throttled and !scan_throttled) continue;
         const root = std.mem.sliceTo(root_buf, 0);
         var ctx = struct { root: []const u8 }{ .root = root };
         plat.forEachEntry(root, &ctx, struct {
@@ -1304,11 +1330,16 @@ fn pollAggregatedState() State {
 }
 
 fn registerSessionRoot(path: []const u8) void {
+    registerSessionRootEx(path, false);
+}
+
+fn registerSessionRootEx(path: []const u8, throttled: bool) void {
     if (session_roots_len >= session_roots_buf.len) return;
     if (path.len >= session_roots_buf[0].len) return;
     const slot = &session_roots_buf[session_roots_len];
     @memcpy(slot[0..path.len], path);
     slot[path.len] = 0;
+    session_roots_throttled[session_roots_len] = throttled;
     session_roots_len += 1;
 }
 
@@ -1383,6 +1414,18 @@ pub fn boot(model: *Model, fx: *Effects) void {
             registerSessionRoot(root);
         } else |_| {}
     }
+    // WSL side: resolve asynchronously (spawning wsl.exe and waiting on
+    // it would stall the boot path, worse if the distro is stopped and
+    // has to wake first) and register the root once whoami answers —
+    // see .wsl_whoami_done. No WSL installed (or the distro missing) is
+    // a normal, silent no-op: the spawn simply exits nonzero or never
+    // resolves, and the pet works exactly as it does without WSL.
+    fx.spawn(.{
+        .key = wsl_whoami_key,
+        .argv = &.{ "wsl.exe", "-d", wsl_distro, "--", "whoami" },
+        .output = .collect,
+        .on_exit = Effects.exitMsg(.wsl_whoami_done),
+    });
     if (env_home) |home| {
         hook_server.start(boot_allocator, home) catch |err| {
             std.debug.print("petdex: hook server failed to start ({s})\n", .{@errorName(err)});
@@ -1521,6 +1564,19 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             }
             model.install.current = 0;
             if (!beginCurrentPet(model, fx)) advanceInstallQueue(model, fx);
+        },
+        .wsl_whoami_done => |exit| {
+            // No WSL, the named distro missing, or whoami failing for
+            // any other reason: leave the WSL root unregistered. The
+            // native-Windows root (already registered) keeps working
+            // untouched — this is additive, never a hard dependency.
+            if (exit.reason != .exited or exit.code != 0) return;
+            const user = std.mem.trim(u8, exit.output, " \t\r\n");
+            if (user.len == 0 or user.len > 64) return;
+            var root_buf: [512]u8 = undefined;
+            if (std.fmt.bufPrint(&root_buf, "//wsl.localhost/{s}/home/{s}/.claude/sessions", .{ wsl_distro, user })) |root| {
+                registerSessionRootEx(root, true);
+            } else |_| {}
         },
         .pet_json_done => |exit| {
             if (model.install.phase != .pet_json) return;

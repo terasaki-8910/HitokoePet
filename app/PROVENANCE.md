@@ -105,7 +105,15 @@ commit: 65d4885cb5f76a5d1f33cace56b93a898f7b2cb3
 | `src/platform/windows/webview2_host.cpp`（chromeless 窓の `createNativeWindow`） | トレイアイコンは追加済みだが、メイン窓が依然タスクバーにも出ていた（トレイ追加は加算的で、タスクバー抑制は別途必要だった）。`WS_EX_TOOLWINDOW` を chromeless 窓の拡張スタイルに追加 | ✅ 実機で `GetWindowLong(GWL_EXSTYLE)` に `WS_EX_TOOLWINDOW` 設定を確認 |
 | `app/src/main.zig`（session-aggregation の配線） | **根本的な欠落**: pure-core の `parseSession`/`aggregate` は存在したが呼び出し元が無く、ペットが Claude Code の実セッションに一切追従していなかった（PLAN.md の `session-aggregation` フィーチャが未着手のままだった）。`poll_tick` で `<home>/.claude/sessions/*.json` を走査し `aggregate()` の結果を `model.state` に反映する配線を追加。hook_server 経由の明示イベント（failed/review/jumping/waving）は優先度を保つ（保留イベントがある間・その dwell 中は本走査を適用しない） | ✅ 実機確認: 実セッション(status=busy)を検知し `idle→running` に遷移（デバッグログで確認、コミット前に除去） |
 
-WSL 側 Claude Code セッションの走査対応は別途（[[wsl-session-scan]] 参照、着手中）。
+**WSL 側セッション走査を追加**（`app/src/main.zig`）: `\\wsl.localhost\Ubuntu\home\<user>\.claude\sessions`
+も session-aggregation の走査対象に加えた。Linux ユーザー名は `wsl.exe -d Ubuntu -- whoami`
+を起動時に非同期 spawn（`fx.spawn` + `.wsl_whoami_done`）で解決（Windows/WSL でユーザー名が
+異なる実例が本機にあったため固定できない: Windows "e8910" / WSL "tera"）。UNC パスは
+フォワードスラッシュ表記（`//wsl.localhost/...`）で `std.Io.Dir` から正しく解決できることを
+実機で確認済み（バックスラッシュへの変換は不要）。WSL 側は 9P 経由でネイティブより遅いため
+20 tick（約2秒）に1回だけ走査するようスロットル。WSL 未導入時は spawn が失敗し無言でネイティブ
+のみ動作（劣化動作）。実機確認: `wsl --list` で "Ubuntu" 導入済みの本機で、ネイティブ1件 +
+WSL側3件 = 計4セッションを検知（デバッグログで確認、コミット前に除去）。
 
 ## 固定 Native SDK フォークへの Windows プラットフォーム改変（2026-07-31）
 
