@@ -1360,15 +1360,22 @@ fn registerSessionRootEx(path: []const u8, throttled: bool) void {
 const VoiceCategory = enum(u8) { idle, running, waiting, review, jumping, waving, failed };
 const voice_category_count = @typeInfo(VoiceCategory).@"enum".fields.len;
 
+/// Only "something needs your attention now" states bark — a
+/// completion notification, not ambient narration. `idle`/`running`/
+/// `review`/`waving` fire constantly as sessions merely exist or the
+/// pet settles from a throw; barking on those was noisy without being
+/// informative (real feedback: "若干うるさすぎるからミュートにしてる").
+/// `waiting` always means a real session needs input — `aggregate()`
+/// only ever produces it for that reason, there is no other kind of
+/// waiting in this model. Re-enabling idle/running/review/waving here
+/// just needs their case arms restored; the audio assets and cooldown
+/// machinery are unchanged either way.
 fn voiceCategoryForState(state: State) ?VoiceCategory {
     return switch (state) {
-        .idle => .idle,
-        .running, .@"running-left", .@"running-right" => .running,
         .waiting => .waiting,
-        .review => .review,
         .jumping => .jumping,
-        .waving => .waving,
         .failed => .failed,
+        .idle, .running, .@"running-left", .@"running-right", .review, .waving => null,
     };
 }
 
@@ -1706,10 +1713,16 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             saveSettings(model);
         },
         .open_pet_page => |index| {
+            // "Open" next to a pet in the list opens that pet's install
+            // folder in Explorer — not a petdex.dev marketing page
+            // (the upstream default this inherited). A desktop pet
+            // manager's "Open" button on a local, already-installed
+            // item means "show me its files", not "show me a webpage".
             if (index >= catalog_len) return;
-            var buf: [256]u8 = undefined;
-            const url = std.fmt.bufPrint(&buf, "https://petdex.dev/pets/{s}", .{catalog[index].slice()}) catch return;
-            plat.openExternal(url);
+            const home = env_home orelse return;
+            var buf: [512]u8 = undefined;
+            const dir = std.fmt.bufPrint(&buf, "{s}/{s}/{s}", .{ home, catalog[index].rootSlice(), catalog[index].slice() }) catch return;
+            plat.openExternal(dir);
         },
         .appearance => |a| {
             model.dark = a.color_scheme == .dark;
@@ -2528,13 +2541,24 @@ const app_menus = [_]native_sdk.platform.Menu{.{
 const PetdexApp = native_sdk.UiApp(Model, Msg);
 
 pub fn main(init: std.process.Init) !void {
-    // Windows has no HOME. Everything the app keeps per-user hangs off
-    // this one lookup (the pet catalog, ~/.petdex/runtime, the settings
-    // file), so reading only HOME made a Windows build behave like a
-    // machine with nothing installed even with pets sitting in
-    // %USERPROFILE%\.petdex\pets. HOME still wins where it exists, so a
-    // POSIX user pointing it elsewhere keeps that.
-    env_home = init.environ_map.get("HOME") orelse init.environ_map.get("USERPROFILE");
+    // Everything the app keeps per-user hangs off this one lookup (the
+    // pet catalog, ~/.petdex/runtime, the settings file, and — the one
+    // that actually bit us — the hook runner's update-token lookup).
+    // On Windows, prefer %USERPROFILE% over $HOME: Windows itself sets
+    // USERPROFILE and nothing legitimately remaps it, while $HOME is an
+    // MSYS/git-bash convention that a shell profile can point anywhere
+    // (reproduced on real hardware: git-bash's $HOME resolved to an
+    // unrelated AppData subfolder, so hook invocations — spawned by
+    // Claude Code through that same shell — silently read/wrote the
+    // wrong .petdex/runtime, found no matching update-token, and every
+    // bubble hook exited 0 having done nothing; the GUI app itself only
+    // avoided this because manual test launches happened to override
+    // HOME explicitly). Elsewhere HOME is the correct, primary POSIX
+    // convention, so the order stays HOME-first there.
+    env_home = if (builtin.os.tag == .windows)
+        init.environ_map.get("USERPROFILE") orelse init.environ_map.get("HOME")
+    else
+        init.environ_map.get("HOME") orelse init.environ_map.get("USERPROFILE");
     // Hook hot path: `<binary> bubble <phase> [agent]` runs the
     // in-binary runner and exits before any UI machinery spins up.
     // initAllocator, not init: on Windows the command line arrives as
