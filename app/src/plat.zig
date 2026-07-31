@@ -255,7 +255,20 @@ pub fn replaceSymlink(target: []const u8, link: []const u8) bool {
     const io = scope.io();
     const cwd = std.Io.Dir.cwd();
     cwd.deleteFile(io, link) catch {};
-    cwd.symLink(io, target, link, .{}) catch return false;
+    cwd.symLink(io, target, link, .{}) catch {
+        // `CreateSymbolicLink` needs SeCreateSymbolicLinkPrivilege on
+        // Windows — off by default unless Developer Mode is enabled or
+        // the process runs elevated — so this silently leaves an empty
+        // placeholder file behind instead of a working link (reproduced
+        // on real hardware: agent hooks that shell out to this path see
+        // a zero-byte, non-executable file and quietly do nothing).
+        // A real file copy needs no special privilege, and this runs on
+        // every boot (see the caller), so a stale copy self-heals on
+        // the app's next launch after a rebuild.
+        if (builtin.os.tag != .windows) return false;
+        std.Io.Dir.copyFileAbsolute(target, link, io, .{}) catch return false;
+        return true;
+    };
     return true;
 }
 
@@ -268,26 +281,44 @@ pub fn processId() u32 {
     };
 }
 
+const windows = std.os.windows;
+
+/// shell32's URL/file-association launcher — what `cmd /c start` and
+/// `explorer.exe <target>` both delegate to internally. Calling it
+/// directly removes both of those as points of failure: no cmd
+/// argument grammar (broke as a bare cmd.exe window + a COM+ registry
+/// error, reproduced on real hardware), and no dependency on
+/// explorer.exe accepting a bare URL as argv (also reproduced — the
+/// cursor busy-spins for the launch, then nothing opens).
+extern "shell32" fn ShellExecuteW(
+    hwnd: ?windows.HWND,
+    lpOperation: ?[*:0]const u16,
+    lpFile: [*:0]const u16,
+    lpParameters: ?[*:0]const u16,
+    lpDirectory: ?[*:0]const u16,
+    nShowCmd: c_int,
+) callconv(.winapi) windows.HINSTANCE;
+
+const sw_shownormal: c_int = 1;
+
+fn openExternalWindows(target: []const u8) void {
+    var wide_buf: [1025]u16 = undefined;
+    const capped = target[0..@min(target.len, 1024)];
+    const wide_len = std.unicode.utf8ToUtf16Le(&wide_buf, capped) catch return;
+    wide_buf[wide_len] = 0;
+    _ = ShellExecuteW(null, null, wide_buf[0..wide_len :0], null, null, sw_shownormal);
+}
+
 /// Open a URL or a folder in the desktop's default handler. One
 /// spawn, no shell, so a path with quotes cannot become an argument
-/// injection the way the old `system()` string could.
+/// injection the way the old `system()` string could. Windows instead
+/// calls `ShellExecuteW` directly — see `openExternalWindows`.
 pub fn openExternal(target: []const u8) void {
+    if (builtin.os.tag == .windows) return openExternalWindows(target);
     var scope = Scope.init();
     defer scope.deinit();
     const io = scope.io();
     const argv: []const []const u8 = switch (builtin.os.tag) {
-        // `cmd /c start "" <target>` looked right but isn't reliable:
-        // cmd's START parses its own argument grammar (the empty
-        // string is a workaround for START treating a quoted first
-        // arg as a window title), and depending on how the target is
-        // quoted/escaped on the way into CreateProcess, this can leave
-        // a bare `cmd.exe` window open instead of launching anything,
-        // sometimes surfaced as an unrelated COM+ registry error
-        // (reproduced on real hardware: Settings > Pets > Open).
-        // `explorer.exe <target>` hands the target straight to the
-        // shell's URL/file association resolver — no cmd grammar, no
-        // quoting pitfall — and is the standard workaround for this.
-        .windows => &.{ "explorer", target },
         .macos => &.{ "/usr/bin/open", target },
         else => &.{ "xdg-open", target },
     };

@@ -129,6 +129,7 @@ pub const Msg = union(enum) {
     set_scale: f32,
     set_held_motion_threshold: f32,
     set_voice_cooldown: f32,
+    set_voice_volume: f32,
     open_pets_folder,
     open_pet_page: u32,
     appearance: native_sdk.platform.Appearance,
@@ -195,6 +196,8 @@ pub const Model = struct {
     /// even without a cooldown, and a confirmation prompt is exactly
     /// the case that should never be swallowed. Persisted.
     voice_cooldown_s: f32 = 60,
+    /// 0.0-1.0, applied before every voice bark. Persisted.
+    voice_volume: f32 = 1.0,
     last_voice_ms: [voice_category_count]i64 = @splat(-1_000_000_000),
     voice_prng: std.Random.DefaultPrng = std.Random.DefaultPrng.init(0),
     active_pet: u32 = 0,
@@ -927,9 +930,9 @@ fn cWriteFile(path: []const u8, bytes: []const u8) void {
 fn saveSettings(model: *const Model) void {
     var path_buf: [512]u8 = undefined;
     const path = settingsPath(&path_buf) orelse return;
-    var buf: [256]u8 = undefined;
+    var buf: [384]u8 = undefined;
     const active = if (model.active_pet < catalog_len) catalog[model.active_pet].slice() else "";
-    const json = std.fmt.bufPrint(&buf, "{{\"active_pet\":\"{s}\",\"scale\":{d:.2},\"held_motion_threshold\":{d:.1},\"voice_cooldown_s\":{d:.1},\"bubbles\":{},\"agents_prompted\":{}}}", .{ active, model.scale, model.held_motion_threshold, model.voice_cooldown_s, model.bubbles_enabled, model.agents_prompted }) catch return;
+    const json = std.fmt.bufPrint(&buf, "{{\"active_pet\":\"{s}\",\"scale\":{d:.2},\"held_motion_threshold\":{d:.1},\"voice_cooldown_s\":{d:.1},\"voice_volume\":{d:.2},\"bubbles\":{},\"agents_prompted\":{}}}", .{ active, model.scale, model.held_motion_threshold, model.voice_cooldown_s, model.voice_volume, model.bubbles_enabled, model.agents_prompted }) catch return;
     cWriteFile(path, json);
 }
 
@@ -1026,6 +1029,7 @@ fn freeSheet(s: *Sheet) void {
 var initial_scale: f32 = 0.7;
 var initial_held_motion_threshold: f64 = 20;
 var initial_voice_cooldown_s: f32 = 60;
+var initial_voice_volume: f32 = 1.0;
 var initial_pet: u32 = 0;
 var initial_bubbles: bool = true;
 var initial_agents_prompted: bool = false;
@@ -1205,6 +1209,9 @@ fn resolveInitialPet(io: std.Io, allocator: std.mem.Allocator, environ_map: *std
             }
             if (hook_server.jsonNumberPub(json, "voice_cooldown_s")) |v| {
                 if (v >= 0 and v <= 600) initial_voice_cooldown_s = @floatCast(v);
+            }
+            if (hook_server.jsonNumberPub(json, "voice_volume")) |v| {
+                if (v >= 0 and v <= 1) initial_voice_volume = @floatCast(v);
             }
             if (hook_server.jsonStringPub(json, "bubbles")) |_| {} else if (std.mem.indexOf(u8, json, "\"bubbles\":false") != null) {
                 initial_bubbles = false;
@@ -1393,6 +1400,7 @@ fn maybeVoiceBark(model: *Model, state: State, fx: *Effects) void {
     }
     model.last_voice_ms[index] = now;
     const pick = model.voice_prng.random().intRangeLessThan(usize, 0, lines.len);
+    fx.setAudioVolume(model.voice_volume);
     fx.playAudio(.{ .key = voice_audio_key, .path = lines[pick] });
 }
 
@@ -1444,6 +1452,7 @@ pub fn boot(model: *Model, fx: *Effects) void {
     model.scale = initial_scale;
     model.held_motion_threshold = initial_held_motion_threshold;
     model.voice_cooldown_s = initial_voice_cooldown_s;
+    model.voice_volume = initial_voice_volume;
     model.bubbles_enabled = initial_bubbles;
     model.agents_prompted = initial_agents_prompted;
     if (env_home) |home| model.agents = agent_hooks.scan(boot_allocator, home);
@@ -1690,6 +1699,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .set_voice_cooldown => |fraction| {
             model.voice_cooldown_s = fraction * 180;
+            saveSettings(model);
+        },
+        .set_voice_volume => |fraction| {
+            model.voice_volume = std.math.clamp(fraction, 0.0, 1.0);
             saveSettings(model);
         },
         .open_pet_page => |index| {
@@ -2390,6 +2403,7 @@ fn settingsView(ui: *AppUi, model: *const Model) AppUi.Node {
     const scale_fraction: f32 = (model.scale - 0.4) / 0.8;
     const held_motion_fraction: f32 = @floatCast(model.held_motion_threshold / 100);
     const voice_cooldown_fraction: f32 = model.voice_cooldown_s / 180;
+    const voice_volume_fraction: f32 = model.voice_volume;
     // One scrollable page: the root scroll takes the window frame and
     // everything - full pet catalog included - flows inside it. No
     // more per-section band budgets.
@@ -2445,6 +2459,15 @@ fn settingsView(ui: *AppUi, model: *const Model) AppUi.Node {
                     ui.text(.{ .size = .sm, .style_tokens = .{ .foreground = .text_muted } }, "Minimum gap between voice barks (waiting always plays)"),
                 }),
                 ui.el(.slider, .{ .width = 150, .value = voice_cooldown_fraction, .on_value = AppUi.valueMsg(.set_voice_cooldown), .semantics = .{ .label = "Voice cooldown" } }, .{}),
+            }),
+        }),
+        ui.el(.panel, .{ .style_tokens = .{ .background = .surface, .radius = .md } }, .{
+            ui.row(.{ .padding = 12, .cross = .center, .gap = 12 }, .{
+                ui.column(.{ .grow = 1 }, .{
+                    ui.text(.{}, "Voice volume"),
+                    ui.text(.{ .size = .sm, .style_tokens = .{ .foreground = .text_muted } }, "How loud the voice barks play"),
+                }),
+                ui.el(.slider, .{ .width = 150, .value = voice_volume_fraction, .on_value = AppUi.valueMsg(.set_voice_volume), .semantics = .{ .label = "Voice volume" } }, .{}),
             }),
         }),
         ui.el(.panel, .{ .style_tokens = .{ .background = .surface, .radius = .md } }, .{

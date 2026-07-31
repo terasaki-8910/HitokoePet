@@ -101,7 +101,8 @@ commit: 65d4885cb5f76a5d1f33cace56b93a898f7b2cb3
 
 | 対象 | 内容 | 判定 |
 | --- | --- | --- |
-| `app/src/plat.zig`（`openExternal`） | Windows で `cmd /c start "" <url>` が信頼できず、空の cmd.exe 窓 + COM+ レジストリエラーで開けないことがあった（Settings > Pets > Open で再現）。`explorer.exe <target>` 直呼びに変更（cmd の引数文法を経由しない） | ✅ 修正 |
+| `app/src/plat.zig`（`openExternal`） | Windows で `cmd /c start "" <url>` が信頼できず、空の cmd.exe 窓 + COM+ レジストリエラーで開けないことがあった（Settings > Pets > Open で再現）。`explorer.exe <target>` 直呼びに変更したが**これも失敗**（カーソルが一瞬回るだけで何も開かない）。最終的に `shell32.ShellExecuteW` を直接 extern 呼び出しする方式に変更（cmd/explorer という中間層を排除）。実機確認: アプリの Open ボタン押下から実際に既定ブラウザで対象URLが開くことを確認（`native.exe automate widget-click` 経由、ブラウザのウィンドウタイトルで検証） | ✅ 修正・実機確認済み |
+| `app/src/plat.zig`（`replaceSymlink`） | **もう一つの根本原因**: `~/.petdex/bin/petdex-hook` の自動作成に使う `CreateSymbolicLink` は Windows では開発者モード/管理者権限が無いと失敗するが、失敗時に空(0バイト)のプレースホルダーだけが残っていた。エージェントフックの `[ -x "$HOME/.petdex/bin/petdex-hook" ] && exec ...` は空ファイルを非実行可能と見て静かに何もしない — **これが「吹き出しメッセージが一切表示されない」の根本原因**（フック自体は発火していたが、petdex-hook が空で何も送信できなかった）。Windows でシンボリックリンク作成が失敗した場合、`std.Io.Dir.copyFileAbsolute` で実行ファイルを直接コピーするフォールバックを追加（毎起動時に再実行されるため、再ビルド後も自動で最新化される） | ✅ 実機確認: 0バイト→4,761,088バイト（実行ファイル本体と一致） |
 | `src/platform/windows/webview2_host.cpp`（chromeless 窓の `createNativeWindow`） | トレイアイコンは追加済みだが、メイン窓が依然タスクバーにも出ていた（トレイ追加は加算的で、タスクバー抑制は別途必要だった）。`WS_EX_TOOLWINDOW` を chromeless 窓の拡張スタイルに追加 | ✅ 実機で `GetWindowLong(GWL_EXSTYLE)` に `WS_EX_TOOLWINDOW` 設定を確認 |
 | `app/src/main.zig`（session-aggregation の配線） | **根本的な欠落**: pure-core の `parseSession`/`aggregate` は存在したが呼び出し元が無く、ペットが Claude Code の実セッションに一切追従していなかった（PLAN.md の `session-aggregation` フィーチャが未着手のままだった）。`poll_tick` で `<home>/.claude/sessions/*.json` を走査し `aggregate()` の結果を `model.state` に反映する配線を追加。hook_server 経由の明示イベント（failed/review/jumping/waving）は優先度を保つ（保留イベントがある間・その dwell 中は本走査を適用しない） | ✅ 実機確認: 実セッション(status=busy)を検知し `idle→running` に遷移（デバッグログで確認、コミット前に除去） |
 
