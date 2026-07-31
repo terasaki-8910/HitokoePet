@@ -128,6 +128,7 @@ pub const Msg = union(enum) {
     select_pet: u32,
     set_scale: f32,
     set_held_motion_threshold: f32,
+    set_voice_cooldown: f32,
     open_pets_folder,
     open_pet_page: u32,
     appearance: native_sdk.platform.Appearance,
@@ -186,6 +187,15 @@ pub const Model = struct {
     /// -right while dragging) drops to idle instead. Persisted; 0 keeps
     /// the running pose for the whole drag, no matter how slow.
     held_motion_threshold: f64 = 20,
+    /// Minimum gap (seconds) between voice barks in the SAME category
+    /// (idle/running/review/jumping/waving/failed). `waiting` ignores
+    /// this — it only ever re-fires on an actual transition into
+    /// waiting (see `applyState`'s call-site guard), so it never spams
+    /// even without a cooldown, and a confirmation prompt is exactly
+    /// the case that should never be swallowed. Persisted.
+    voice_cooldown_s: f32 = 60,
+    last_voice_ms: [voice_category_count]i64 = @splat(-1_000_000_000),
+    voice_prng: std.Random.DefaultPrng = std.Random.DefaultPrng.init(0),
     active_pet: u32 = 0,
     window_fitted: bool = false,
     bubbles_enabled: bool = true,
@@ -909,7 +919,7 @@ fn saveSettings(model: *const Model) void {
     const path = settingsPath(&path_buf) orelse return;
     var buf: [256]u8 = undefined;
     const active = if (model.active_pet < catalog_len) catalog[model.active_pet].slice() else "";
-    const json = std.fmt.bufPrint(&buf, "{{\"active_pet\":\"{s}\",\"scale\":{d:.2},\"held_motion_threshold\":{d:.1},\"bubbles\":{},\"agents_prompted\":{}}}", .{ active, model.scale, model.held_motion_threshold, model.bubbles_enabled, model.agents_prompted }) catch return;
+    const json = std.fmt.bufPrint(&buf, "{{\"active_pet\":\"{s}\",\"scale\":{d:.2},\"held_motion_threshold\":{d:.1},\"voice_cooldown_s\":{d:.1},\"bubbles\":{},\"agents_prompted\":{}}}", .{ active, model.scale, model.held_motion_threshold, model.voice_cooldown_s, model.bubbles_enabled, model.agents_prompted }) catch return;
     cWriteFile(path, json);
 }
 
@@ -1005,6 +1015,7 @@ fn freeSheet(s: *Sheet) void {
 
 var initial_scale: f32 = 0.7;
 var initial_held_motion_threshold: f64 = 20;
+var initial_voice_cooldown_s: f32 = 60;
 var initial_pet: u32 = 0;
 var initial_bubbles: bool = true;
 var initial_agents_prompted: bool = false;
@@ -1182,6 +1193,9 @@ fn resolveInitialPet(io: std.Io, allocator: std.mem.Allocator, environ_map: *std
             if (hook_server.jsonNumberPub(json, "held_motion_threshold")) |v| {
                 if (v >= 0 and v <= 100) initial_held_motion_threshold = v;
             }
+            if (hook_server.jsonNumberPub(json, "voice_cooldown_s")) |v| {
+                if (v >= 0 and v <= 600) initial_voice_cooldown_s = @floatCast(v);
+            }
             if (hook_server.jsonStringPub(json, "bubbles")) |_| {} else if (std.mem.indexOf(u8, json, "\"bubbles\":false") != null) {
                 initial_bubbles = false;
             }
@@ -1240,6 +1254,59 @@ fn dwellFor(state: State, duration_ms: u32) u32 {
     return min_dwell_ms;
 }
 
+// ------------------------------------------------------------- voice barks
+// SPEC 3.3 拡張: Stop フック1本の done.wav から、ペットの9状態のうち
+// 意味のある7カテゴリ（running-left/-right は running に集約）へ拡張。
+// 台詞は draft（Irodori-TTS で生成、character voice: 棗いろは想定、
+// 「先生」呼び・敬語）。差し替えは app/assets/voice/<category>/ の
+// ファイルを入れ替えるだけでよい。
+
+const VoiceCategory = enum(u8) { idle, running, waiting, review, jumping, waving, failed };
+const voice_category_count = @typeInfo(VoiceCategory).@"enum".fields.len;
+
+fn voiceCategoryForState(state: State) ?VoiceCategory {
+    return switch (state) {
+        .idle => .idle,
+        .running, .@"running-left", .@"running-right" => .running,
+        .waiting => .waiting,
+        .review => .review,
+        .jumping => .jumping,
+        .waving => .waving,
+        .failed => .failed,
+    };
+}
+
+const voice_lines = std.EnumArray(VoiceCategory, []const []const u8).init(.{
+    .idle = &.{ "assets/voice/idle/1.wav", "assets/voice/idle/2.wav" },
+    .running = &.{ "assets/voice/running/1.wav", "assets/voice/running/2.wav" },
+    .waiting = &.{ "assets/voice/waiting/1.wav", "assets/voice/waiting/2.wav" },
+    .review = &.{ "assets/voice/review/1.wav", "assets/voice/review/2.wav" },
+    .jumping = &.{ "assets/voice/jumping/1.wav", "assets/voice/jumping/2.wav" },
+    .waving = &.{ "assets/voice/waving/1.wav", "assets/voice/waving/2.wav" },
+    .failed = &.{ "assets/voice/failed/1.wav", "assets/voice/failed/2.wav" },
+});
+
+const voice_audio_key: u64 = 1;
+
+/// Bark for a state transition, subject to the per-category cooldown
+/// (`waiting` is exempt — see the field doc on `Model.last_voice_ms`).
+/// Silent no-op on any problem (no lines for the category, cooldown
+/// still open): a missed bark is never worth interrupting the pet over.
+fn maybeVoiceBark(model: *Model, state: State, fx: *Effects) void {
+    const category = voiceCategoryForState(state) orelse return;
+    const lines = voice_lines.get(category);
+    if (lines.len == 0) return;
+    const now = fx.wallMs();
+    const index = @intFromEnum(category);
+    if (category != .waiting) {
+        const cooldown_ms: i64 = @intFromFloat(@as(f64, model.voice_cooldown_s) * 1000.0);
+        if (now - model.last_voice_ms[index] < cooldown_ms) return;
+    }
+    model.last_voice_ms[index] = now;
+    const pick = model.voice_prng.random().intRangeLessThan(usize, 0, lines.len);
+    fx.playAudio(.{ .key = voice_audio_key, .path = lines[pick] });
+}
+
 fn applyState(model: *Model, state: State, duration_ms: u32, fx: *Effects) void {
     model.state = state;
     model.frame_index = 0;
@@ -1247,9 +1314,11 @@ fn applyState(model: *Model, state: State, duration_ms: u32, fx: *Effects) void 
     model.shown_dwell_ms = dwellFor(state, duration_ms);
     registerStateFrames(state, fx);
     armFrameTimer(model, fx);
+    maybeVoiceBark(model, state, fx);
 }
 
 pub fn boot(model: *Model, fx: *Effects) void {
+    model.voice_prng = std.Random.DefaultPrng.init(@bitCast(fx.wallMs()));
     if (env_home) |home| {
         hook_server.start(boot_allocator, home) catch |err| {
             std.debug.print("petdex: hook server failed to start ({s})\n", .{@errorName(err)});
@@ -1267,6 +1336,7 @@ pub fn boot(model: *Model, fx: *Effects) void {
     // Agents section.
     model.scale = initial_scale;
     model.held_motion_threshold = initial_held_motion_threshold;
+    model.voice_cooldown_s = initial_voice_cooldown_s;
     model.bubbles_enabled = initial_bubbles;
     model.agents_prompted = initial_agents_prompted;
     if (env_home) |home| model.agents = agent_hooks.scan(boot_allocator, home);
@@ -1496,6 +1566,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .set_held_motion_threshold => |fraction| {
             model.held_motion_threshold = @as(f64, fraction) * 100;
+            saveSettings(model);
+        },
+        .set_voice_cooldown => |fraction| {
+            model.voice_cooldown_s = fraction * 180;
             saveSettings(model);
         },
         .open_pet_page => |index| {
@@ -2186,6 +2260,7 @@ fn settingsView(ui: *AppUi, model: *const Model) AppUi.Node {
     }
     const scale_fraction: f32 = (model.scale - 0.4) / 0.8;
     const held_motion_fraction: f32 = @floatCast(model.held_motion_threshold / 100);
+    const voice_cooldown_fraction: f32 = model.voice_cooldown_s / 180;
     // One scrollable page: the root scroll takes the window frame and
     // everything - full pet catalog included - flows inside it. No
     // more per-section band budgets.
@@ -2232,6 +2307,15 @@ fn settingsView(ui: *AppUi, model: *const Model) AppUi.Node {
                     ui.text(.{ .size = .sm, .style_tokens = .{ .foreground = .text_muted } }, "Lower = keeps running while held even when barely moving. 0 = always"),
                 }),
                 ui.el(.slider, .{ .width = 150, .value = held_motion_fraction, .on_value = AppUi.valueMsg(.set_held_motion_threshold), .semantics = .{ .label = "Held motion sensitivity" } }, .{}),
+            }),
+        }),
+        ui.el(.panel, .{ .style_tokens = .{ .background = .surface, .radius = .md } }, .{
+            ui.row(.{ .padding = 12, .cross = .center, .gap = 12 }, .{
+                ui.column(.{ .grow = 1 }, .{
+                    ui.text(.{}, "Voice cooldown"),
+                    ui.text(.{ .size = .sm, .style_tokens = .{ .foreground = .text_muted } }, "Minimum gap between voice barks (waiting always plays)"),
+                }),
+                ui.el(.slider, .{ .width = 150, .value = voice_cooldown_fraction, .on_value = AppUi.valueMsg(.set_voice_cooldown), .semantics = .{ .label = "Voice cooldown" } }, .{}),
             }),
         }),
         ui.el(.panel, .{ .style_tokens = .{ .background = .surface, .radius = .md } }, .{
