@@ -276,7 +276,18 @@ pub fn openExternal(target: []const u8) void {
     defer scope.deinit();
     const io = scope.io();
     const argv: []const []const u8 = switch (builtin.os.tag) {
-        .windows => &.{ "cmd", "/c", "start", "", target },
+        // `cmd /c start "" <target>` looked right but isn't reliable:
+        // cmd's START parses its own argument grammar (the empty
+        // string is a workaround for START treating a quoted first
+        // arg as a window title), and depending on how the target is
+        // quoted/escaped on the way into CreateProcess, this can leave
+        // a bare `cmd.exe` window open instead of launching anything,
+        // sometimes surfaced as an unrelated COM+ registry error
+        // (reproduced on real hardware: Settings > Pets > Open).
+        // `explorer.exe <target>` hands the target straight to the
+        // shell's URL/file association resolver — no cmd grammar, no
+        // quoting pitfall — and is the standard workaround for this.
+        .windows => &.{ "explorer", target },
         .macos => &.{ "/usr/bin/open", target },
         else => &.{ "xdg-open", target },
     };

@@ -1254,6 +1254,64 @@ fn dwellFor(state: State, duration_ms: u32) u32 {
     return min_dwell_ms;
 }
 
+// ------------------------------------------------------------- session aggregation
+// PLAN.md「session-aggregation」の配線。pure-core の parseSession/aggregate は
+// 存在するが呼び出し元が無かった（ペットが Claude Code の実際の活動に一切追従
+// しない不具合の根本原因）。poll_tick から `<root>/.claude/sessions/*.json` を
+// 読み、aggregate() の結果（idle/running/waiting）を model.state に反映する。
+// hook_server 経由の明示イベント（failed/review/jumping/waving 等、他ツールが
+// 送る一過性の状態）は優先: 保留中のイベントがある間、またはその dwell が
+// 終わっていない間は本走査の結果を適用しない。
+
+const max_polled_sessions = 32;
+const max_session_json_bytes = 1024;
+
+/// 走査対象ルート。ネイティブ Windows のホームだけでなく、WSL 側の
+/// `.claude/sessions`（`\\wsl.localhost\<distro>\home\<user>\.claude\sessions`
+/// 等、UNC 経由で見える場合）も同じ配列に増やせる作り（WSL対応は別途）。
+var session_roots_buf: [4][512]u8 = undefined;
+var session_roots_len: usize = 0;
+
+var session_json_bufs: [max_polled_sessions][max_session_json_bytes]u8 = undefined;
+var session_list: [max_polled_sessions]Session = undefined;
+var session_count: usize = 0;
+
+fn sessionEntryVisit(root: []const u8, name: []const u8) void {
+    if (session_count >= max_polled_sessions) return;
+    if (!std.mem.endsWith(u8, name, ".json")) return;
+    var path_buf: [640]u8 = undefined;
+    const path = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ root, name }) catch return;
+    const json = plat.readFile(path, &session_json_bufs[session_count]) orelse return;
+    const session = parseSession(json) orelse return;
+    session_list[session_count] = session;
+    session_count += 1;
+}
+
+/// 全ルートを走査して `aggregate()` にかけ、集約状態を返す。読めるものが
+/// 何も無ければ（劣化動作） `.idle` を返す — aggregate([]) と同じ結果。
+fn pollAggregatedState() State {
+    session_count = 0;
+    for (session_roots_buf[0..session_roots_len]) |*root_buf| {
+        const root = std.mem.sliceTo(root_buf, 0);
+        var ctx = struct { root: []const u8 }{ .root = root };
+        plat.forEachEntry(root, &ctx, struct {
+            fn visit(c: *@TypeOf(ctx), name: []const u8) void {
+                sessionEntryVisit(c.root, name);
+            }
+        }.visit);
+    }
+    return aggregate(session_list[0..session_count]);
+}
+
+fn registerSessionRoot(path: []const u8) void {
+    if (session_roots_len >= session_roots_buf.len) return;
+    if (path.len >= session_roots_buf[0].len) return;
+    const slot = &session_roots_buf[session_roots_len];
+    @memcpy(slot[0..path.len], path);
+    slot[path.len] = 0;
+    session_roots_len += 1;
+}
+
 // ------------------------------------------------------------- voice barks
 // SPEC 3.3 拡張: Stop フック1本の done.wav から、ペットの9状態のうち
 // 意味のある7カテゴリ（running-left/-right は running に集約）へ拡張。
@@ -1319,6 +1377,12 @@ fn applyState(model: *Model, state: State, duration_ms: u32, fx: *Effects) void 
 
 pub fn boot(model: *Model, fx: *Effects) void {
     model.voice_prng = std.Random.DefaultPrng.init(@bitCast(fx.wallMs()));
+    if (env_home) |home| {
+        var root_buf: [512]u8 = undefined;
+        if (std.fmt.bufPrint(&root_buf, "{s}/.claude/sessions", .{home})) |root| {
+            registerSessionRoot(root);
+        } else |_| {}
+    }
     if (env_home) |home| {
         hook_server.start(boot_allocator, home) catch |err| {
             std.debug.print("petdex: hook server failed to start ({s})\n", .{@errorName(err)});
@@ -1796,6 +1860,15 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 }
             } else if (isDurationState(model.state)) {
                 applyState(model, .idle, 0, fx);
+            } else {
+                // No explicit event pending and not mid-display of one
+                // (duration states above already have priority): fall
+                // back to what the actual Claude Code sessions on disk
+                // say right now. Degrades to .idle when nothing is
+                // readable (no ~/.claude/sessions, empty, all
+                // unparseable) — same as aggregate(&.{}).
+                const aggregated = pollAggregatedState();
+                if (aggregated != model.state) applyState(model, aggregated, 0, fx);
             }
         },
     }

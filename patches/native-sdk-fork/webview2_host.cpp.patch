@@ -1,5 +1,5 @@
 --- /c/Users/e8910/AppData/Local/Temp/claude/C--Users-e8910-Documents-HitokoePet/9956bb5d-4d92-4f46-bfc8-56adab5167e0/scratchpad/native-sdk-fork/src/platform/windows/webview2_host.cpp	2026-07-28 23:12:05.154226100 +0900
-+++ /c/Users/e8910/Documents/HitokoePet/tools/native-sdk-fork/src/platform/windows/webview2_host.cpp	2026-07-31 03:01:01.973746200 +0900
++++ /c/Users/e8910/Documents/HitokoePet/tools/native-sdk-fork/src/platform/windows/webview2_host.cpp	2026-08-01 04:26:58.198854700 +0900
 @@ -1640,8 +1640,18 @@
      return menu_bar;
  }
@@ -100,8 +100,11 @@
              break;
          case WM_COMMAND:
              if (host) {
-@@ -5375,14 +5438,20 @@
+@@ -5373,16 +5436,30 @@
+      * extend their own drawing into the caption band — the band itself
+      * is reclaimed in WM_NCCALCSIZE, everything else stays standard. */
      DWORD style = WS_OVERLAPPEDWINDOW;
++    DWORD ex_style = 0;
      if (!window.resizable) style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
      if (windowIsChromeless(window)) {
 -        /* Chromeless: the caption-less popup shape — no caption band,
@@ -126,10 +129,26 @@
 +         * lost taskbar-menu close entrypoint. */
 +        style = WS_POPUP;
 +        if (window.resizable) style |= WS_THICKFRAME;
++        /* No taskbar button: a chromeless companion window is meant to
++         * live in the tray (Settings has its own tray icon for exactly
++         * this), not clutter the taskbar as an ownerless top-level
++         * window would by default. WS_EX_TOOLWINDOW also drops it from
++         * the default Alt+Tab switcher — appropriate for a floating
++         * overlay pet, not a window someone task-switches to. */
++        ex_style |= WS_EX_TOOLWINDOW;
      }
      /* The requested frame is a CONTENT size in LOGICAL points (the
       * other hosts size the content area); scale it to physical pixels
-@@ -6003,6 +6072,98 @@
+@@ -5408,7 +5485,7 @@
+         outer_height = outer.cy;
+     }
+     HWND hwnd = CreateWindowExW(
+-        0,
++        ex_style,
+         L"NativeSdkWindowsHost",
+         title.c_str(),
+         style,
+@@ -6003,6 +6080,98 @@
      return 1;
  }
  

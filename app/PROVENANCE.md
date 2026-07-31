@@ -95,6 +95,18 @@ commit: 65d4885cb5f76a5d1f33cace56b93a898f7b2cb3
 `scripts/run.sh` の PATH 前置で解決。[[native-cli-fork-wiring]] 参照。以降の実機検証は
 すべて `native test app` 本体で実施）
 
+## 実機フィードバックへの対応（2026-08-01）
+
+ユーザーが実機で気づいた3件の不具合。
+
+| 対象 | 内容 | 判定 |
+| --- | --- | --- |
+| `app/src/plat.zig`（`openExternal`） | Windows で `cmd /c start "" <url>` が信頼できず、空の cmd.exe 窓 + COM+ レジストリエラーで開けないことがあった（Settings > Pets > Open で再現）。`explorer.exe <target>` 直呼びに変更（cmd の引数文法を経由しない） | ✅ 修正 |
+| `src/platform/windows/webview2_host.cpp`（chromeless 窓の `createNativeWindow`） | トレイアイコンは追加済みだが、メイン窓が依然タスクバーにも出ていた（トレイ追加は加算的で、タスクバー抑制は別途必要だった）。`WS_EX_TOOLWINDOW` を chromeless 窓の拡張スタイルに追加 | ✅ 実機で `GetWindowLong(GWL_EXSTYLE)` に `WS_EX_TOOLWINDOW` 設定を確認 |
+| `app/src/main.zig`（session-aggregation の配線） | **根本的な欠落**: pure-core の `parseSession`/`aggregate` は存在したが呼び出し元が無く、ペットが Claude Code の実セッションに一切追従していなかった（PLAN.md の `session-aggregation` フィーチャが未着手のままだった）。`poll_tick` で `<home>/.claude/sessions/*.json` を走査し `aggregate()` の結果を `model.state` に反映する配線を追加。hook_server 経由の明示イベント（failed/review/jumping/waving）は優先度を保つ（保留イベントがある間・その dwell 中は本走査を適用しない） | ✅ 実機確認: 実セッション(status=busy)を検知し `idle→running` に遷移（デバッグログで確認、コミット前に除去） |
+
+WSL 側 Claude Code セッションの走査対応は別途（[[wsl-session-scan]] 参照、着手中）。
+
 ## 固定 Native SDK フォークへの Windows プラットフォーム改変（2026-07-31）
 
 app/ 本体ではなく**固定フォーク**（`tools/native-sdk-fork/`、[[native-cli-fork-wiring]] 参照）への
