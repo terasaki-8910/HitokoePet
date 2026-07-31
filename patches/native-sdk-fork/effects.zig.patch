@@ -1,0 +1,25 @@
+--- /c/Users/e8910/AppData/Local/Temp/claude/C--Users-e8910-Documents-HitokoePet/9956bb5d-4d92-4f46-bfc8-56adab5167e0/scratchpad/native-sdk-fork/src/runtime/effects.zig	2026-07-28 23:12:05.289805100 +0900
++++ /c/Users/e8910/Documents/HitokoePet/tools/native-sdk-fork/src/runtime/effects.zig	2026-07-31 15:44:23.223603200 +0900
+@@ -3355,6 +3355,22 @@
+             return binding.resize_fn(binding.context, window_label, width, height, anchor);
+         }
+ 
++        /// Ask the platform to present the named gpu_surface view's next
++        /// frame as soon as the pacing grid allows, rather than waiting
++        /// for the view's own animation timer to advance. Fire-and-forget
++        /// (a missing service or unknown view is silently ignored, same
++        /// shape as `cancelTimer`) — an app drives a live-tracking loop
++        /// (window drag/throw follow) by calling this every `frame_clock`
++        /// tick for the duration of the gesture, which decouples the
++        /// loop's update rate from the sprite's per-frame duration
++        /// (regularly 100ms+, far coarser than the drag needs to look
++        /// smooth).
++        pub fn requestGpuSurfaceFrame(self: *Self, window_id: platform.WindowId, view_label: []const u8) void {
++            if (self.executor == .fake) return;
++            const services = self.services orelse return;
++            services.requestGpuSurfaceFrame(window_id, view_label) catch {};
++        }
++
+         /// Raise a window by its declared label and activate the app:
+         /// the "bring my window back" verb for a window the user sent
+         /// behind other apps. No-op under the fake executor or when no

@@ -1410,6 +1410,13 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 if (model.throw_elapsed_ms >= physics_max_duration_ms or speed < physics_min_vel) {
                     model.throwing = false;
                     applyState(model, .waving, 1200, fx);
+                } else {
+                    // Keep priming the pump: without this, the next
+                    // frame_clock tick (and so the next position sample)
+                    // waits on the sprite's OWN animation-frame duration
+                    // (commonly 100ms+), not a smooth 60fps-ish cadence —
+                    // the throw would visibly stutter instead of gliding.
+                    fx.requestGpuSurfaceFrame(1, canvas_label);
                 }
                 return;
             }
@@ -1418,6 +1425,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.pet_y = read.y;
             syncBubbleWindow(model, fx);
             if (model.dragging) {
+                // Same reasoning as the throw above: while a drag is
+                // live, re-request the next frame every tick so the pet
+                // tracks the cursor at a smooth cadence instead of only
+                // catching up whenever the idle/running sprite's own
+                // frame timer happens to fire.
+                fx.requestGpuSurfaceFrame(1, canvas_label);
                 if (read.primary_down) {
                     // Follow the cursor keeping the grab offset, and
                     // record OUR OWN applied positions: the app drives
@@ -1436,11 +1449,21 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                     // is being pulled, from the same 100ms velocity
                     // tail the release uses (per-frame dx flaps).
                     if (releaseVelocity(model)) |vel| {
-                        if (vel.x >= physics_min_vel) {
+                        // The held pet keeps showing motion for the whole
+                        // gesture, not just once it clears the release-throw
+                        // threshold (physics_min_vel, tuned for "is this a
+                        // throw" — much coarser than "which way is it facing
+                        // right now"). A shared threshold here (matching the
+                        // idle check) means every velocity magnitude maps to
+                        // SOME state, so a moderate, controlled drag no
+                        // longer freezes on the pose it happened to have
+                        // when it crossed 20px/s.
+                        const held_motion_threshold = 20;
+                        if (vel.x >= held_motion_threshold) {
                             setThrowState(model, .@"running-right", fx);
-                        } else if (vel.x <= -physics_min_vel) {
+                        } else if (vel.x <= -held_motion_threshold) {
                             setThrowState(model, .@"running-left", fx);
-                        } else if (@abs(vel.x) < 20 and @abs(vel.y) < 20) {
+                        } else if (@abs(vel.x) < held_motion_threshold and @abs(vel.y) < held_motion_threshold) {
                             setThrowState(model, .idle, fx);
                         }
                     }
