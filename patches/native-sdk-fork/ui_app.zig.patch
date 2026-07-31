@@ -1,0 +1,36 @@
+--- /c/Users/e8910/AppData/Local/Temp/claude/C--Users-e8910-Documents-HitokoePet/9956bb5d-4d92-4f46-bfc8-56adab5167e0/scratchpad/native-sdk-fork/src/runtime/ui_app.zig	2026-07-28 23:12:05.307881600 +0900
++++ /c/Users/e8910/Documents/HitokoePet/tools/native-sdk-fork/src/runtime/ui_app.zig	2026-07-31 16:28:04.765714200 +0900
+@@ -1084,6 +1084,12 @@
+                 .focus_fn = effectsFocusWindowByLabel,
+                 .minimize_fn = effectsMinimizeWindowByLabel,
+             });
++            self.effects.bindTrayActions(.{
++                .context = runtime,
++                .create_fn = effectsCreateTray,
++                .update_menu_fn = effectsUpdateTrayMenu,
++                .remove_fn = effectsRemoveTray,
++            });
+             if (runtime.options.session_recorder) |recorder| {
+                 self.effects.bindJournal(recorder.effectJournal());
+             }
+@@ -3632,3 +3638,20 @@
+     runtime.minimizeWindow(window_id) catch return false;
+     return true;
+ }
++
++fn effectsCreateTray(context: *anyopaque, options: platform.TrayOptions) bool {
++    const runtime: *Runtime = @ptrCast(@alignCast(context));
++    runtime.createTray(options) catch return false;
++    return true;
++}
++
++fn effectsUpdateTrayMenu(context: *anyopaque, items: []const platform.TrayMenuItem) bool {
++    const runtime: *Runtime = @ptrCast(@alignCast(context));
++    runtime.updateTrayMenu(items) catch return false;
++    return true;
++}
++
++fn effectsRemoveTray(context: *anyopaque) void {
++    const runtime: *Runtime = @ptrCast(@alignCast(context));
++    runtime.removeTray() catch {};
++}

@@ -127,6 +127,7 @@ pub const Msg = union(enum) {
     close_pet,
     select_pet: u32,
     set_scale: f32,
+    set_held_motion_threshold: f32,
     open_pets_folder,
     open_pet_page: u32,
     appearance: native_sdk.platform.Appearance,
@@ -181,6 +182,10 @@ pub const Model = struct {
     /// Sprite scale, persisted. Codex parity: the settings slider maps
     /// 0.4..1.2 over this.
     scale: f32 = 0.7,
+    /// Velocity (px/s) below which the held-motion display (running-left/
+    /// -right while dragging) drops to idle instead. Persisted; 0 keeps
+    /// the running pose for the whole drag, no matter how slow.
+    held_motion_threshold: f64 = 20,
     active_pet: u32 = 0,
     window_fitted: bool = false,
     bubbles_enabled: bool = true,
@@ -193,6 +198,7 @@ pub const Model = struct {
         .{ .kind = .opencode },
     },
     agents_prompted: bool = false,
+    tray_created: bool = false,
     codex_trust_note: bool = false,
     pet_filter: [48]u8 = @splat(0),
     pet_filter_len: usize = 0,
@@ -637,6 +643,29 @@ pub const Effects = native_sdk.Effects(Msg);
 
 const frame_timer_key: u64 = 1;
 
+/// Drag/throw position updates ride their own steady timer instead of
+/// the gpu_surface present cadence (`.frame_clock`): a repaint's cost
+/// (the Windows software-pixels blit especially) varies frame to frame,
+/// and coupling window movement 1:1 to "did a repaint just finish" turns
+/// any repaint hiccup directly into a visible stutter in the MOTION, not
+/// just the picture. A dedicated interval timer applies positions on a
+/// fixed cadence regardless of repaint timing; repaint is asked for
+/// separately (`requestGpuSurfaceFrame`) to keep the picture matching.
+/// Armed only while a gesture is live (see `cancelPhysicsTimer`) so an
+/// idle pet costs nothing extra.
+fn armPhysicsTimer(fx: *Effects) void {
+    fx.startTimer(.{
+        .key = physics_timer_key,
+        .interval_ms = physics_tick_ms,
+        .mode = .repeating,
+        .on_fire = Effects.timerMsg(.physics_tick),
+    });
+}
+
+fn cancelPhysicsTimer(fx: *Effects) void {
+    fx.cancelTimer(physics_timer_key);
+}
+
 fn armFrameTimer(model: *const Model, fx: *Effects) void {
     const def = stateDef(model.state);
     const spec = def.frames[model.frame_index % def.frames.len];
@@ -755,7 +784,7 @@ fn saveSettings(model: *const Model) void {
     const path = settingsPath(&path_buf) orelse return;
     var buf: [256]u8 = undefined;
     const active = if (model.active_pet < catalog_len) catalog[model.active_pet].slice() else "";
-    const json = std.fmt.bufPrint(&buf, "{{\"active_pet\":\"{s}\",\"scale\":{d:.2},\"bubbles\":{},\"agents_prompted\":{}}}", .{ active, model.scale, model.bubbles_enabled, model.agents_prompted }) catch return;
+    const json = std.fmt.bufPrint(&buf, "{{\"active_pet\":\"{s}\",\"scale\":{d:.2},\"held_motion_threshold\":{d:.1},\"bubbles\":{},\"agents_prompted\":{}}}", .{ active, model.scale, model.held_motion_threshold, model.bubbles_enabled, model.agents_prompted }) catch return;
     cWriteFile(path, json);
 }
 
@@ -850,6 +879,7 @@ fn freeSheet(s: *Sheet) void {
 }
 
 var initial_scale: f32 = 0.7;
+var initial_held_motion_threshold: f64 = 20;
 var initial_pet: u32 = 0;
 var initial_bubbles: bool = true;
 var initial_agents_prompted: bool = false;
@@ -1024,6 +1054,9 @@ fn resolveInitialPet(io: std.Io, allocator: std.mem.Allocator, environ_map: *std
             if (hook_server.jsonNumberPub(json, "scale")) |v| {
                 if (v >= 0.3 and v <= 1.5) initial_scale = @floatCast(v);
             }
+            if (hook_server.jsonNumberPub(json, "held_motion_threshold")) |v| {
+                if (v >= 0 and v <= 100) initial_held_motion_threshold = v;
+            }
             if (hook_server.jsonStringPub(json, "bubbles")) |_| {} else if (std.mem.indexOf(u8, json, "\"bubbles\":false") != null) {
                 initial_bubbles = false;
             }
@@ -1108,6 +1141,7 @@ pub fn boot(model: *Model, fx: *Effects) void {
     // not cost the user their scale, their bubble preference, or the
     // Agents section.
     model.scale = initial_scale;
+    model.held_motion_threshold = initial_held_motion_threshold;
     model.bubbles_enabled = initial_bubbles;
     model.agents_prompted = initial_agents_prompted;
     if (env_home) |home| model.agents = agent_hooks.scan(boot_allocator, home);
@@ -1335,6 +1369,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             _ = fitWindow(model, fx);
             saveSettings(model);
         },
+        .set_held_motion_threshold => |fraction| {
+            model.held_motion_threshold = @as(f64, fraction) * 100;
+            saveSettings(model);
+        },
         .open_pet_page => |index| {
             if (index >= catalog_len) return;
             var buf: [256]u8 = undefined;
@@ -1361,6 +1399,23 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .frame_clock => {
             if (!model.sheet_loaded) return;
+            if (!model.tray_created) {
+                // The tray/hidden-icons entry is the recovery path for a
+                // chromeless, no-titlebar pet: closing every canvas
+                // window (main + settings) still leaves this icon behind
+                // to reopen Settings or Close Pet from. Same two verbs,
+                // same command strings as the right-click menu and the
+                // Ctrl+,/Ctrl+W accelerators — one command table, three
+                // ways to reach it.
+                model.tray_created = fx.createTray(.{
+                    .icon_path = "assets/icon.png",
+                    .tooltip = "Petdex",
+                    .items = &.{
+                        .{ .id = 1, .label = "Settings...", .command = "petdex.settings" },
+                        .{ .id = 2, .label = "Close Pet", .command = "petdex.close" },
+                    },
+                });
+            }
             if (!model.window_fitted) {
                 // First-run onboarding: open settings ONCE when no
                 // agent carries petdex hooks. Installing one - or just
@@ -1380,10 +1435,38 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 // pet — no invisible band above it eating clicks.
                 model.window_fitted = fitWindow(model, fx);
             }
+            // Drag/throw ownership moved to `.physics_tick` (its own
+            // steady timer — see `armPhysicsTimer`); while either is
+            // live this tick only needs to leave them alone.
+            if (model.dragging or model.throwing) return;
+            const now = fx.wallMs();
+            const read = fx.moveWindow("main", 0, 0, false) orelse return;
+            model.pet_x = read.x;
+            model.pet_y = read.y;
+            syncBubbleWindow(model, fx);
+            const pet_w = frame_w * model.scale;
+            const pet_h = frame_h * model.scale;
+            // The window is fitted to the sprite, so the pet rect IS
+            // the window rect.
+            const inside = read.cursor_x >= read.x and read.cursor_x <= read.x + pet_w and
+                read.cursor_y >= read.y and read.cursor_y <= read.y + pet_h;
+            if (read.primary_down and !model.primary_was_down and inside) {
+                model.dragging = true;
+                model.grab_dx = read.cursor_x - read.x;
+                model.grab_dy = read.cursor_y - read.y;
+                model.sample_len = 0;
+                pushSample(model, read.x, read.y, now);
+                armPhysicsTimer(fx);
+            }
+            model.primary_was_down = read.primary_down;
+        },
+        .physics_tick => |timer| {
+            _ = timer;
             const now = fx.wallMs();
             if (model.throwing) {
-                // Momentum rides the frame clock with the real elapsed
-                // time: no timer jitter, friction scaled per frame.
+                // Momentum uses the real elapsed time (not the nominal
+                // physics_tick_ms), so an occasional late tick still
+                // covers the right distance instead of drifting.
                 var dt_ms = now - model.last_physics_ms;
                 if (dt_ms <= 0) return;
                 if (dt_ms > 50) dt_ms = 50;
@@ -1410,98 +1493,82 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 if (model.throw_elapsed_ms >= physics_max_duration_ms or speed < physics_min_vel) {
                     model.throwing = false;
                     applyState(model, .waving, 1200, fx);
+                    cancelPhysicsTimer(fx);
                 } else {
-                    // Keep priming the pump: without this, the next
-                    // frame_clock tick (and so the next position sample)
-                    // waits on the sprite's OWN animation-frame duration
-                    // (commonly 100ms+), not a smooth 60fps-ish cadence —
-                    // the throw would visibly stutter instead of gliding.
+                    // The POSITION already moved (above, on the steady
+                    // tick); this only asks for a matching repaint so the
+                    // picture doesn't lag the window.
                     fx.requestGpuSurfaceFrame(1, canvas_label);
                 }
                 return;
             }
-            const read = fx.moveWindow("main", 0, 0, false) orelse return;
-            model.pet_x = read.x;
-            model.pet_y = read.y;
-            syncBubbleWindow(model, fx);
-            if (model.dragging) {
-                // Same reasoning as the throw above: while a drag is
-                // live, re-request the next frame every tick so the pet
-                // tracks the cursor at a smooth cadence instead of only
-                // catching up whenever the idle/running sprite's own
-                // frame timer happens to fire.
-                fx.requestGpuSurfaceFrame(1, canvas_label);
-                if (read.primary_down) {
-                    // Follow the cursor keeping the grab offset, and
-                    // record OUR OWN applied positions: the app drives
-                    // the drag, so it has perfect knowledge of the
-                    // gesture, no host telemetry involved.
-                    const dx = (read.cursor_x - model.grab_dx) - read.x;
-                    const dy = (read.cursor_y - model.grab_dy) - read.y;
-                    if (dx != 0 or dy != 0) {
-                        if (fx.moveWindow("main", dx, dy, false)) |moved| {
-                            pushSample(model, moved.x, moved.y, now);
-                        }
-                    } else {
-                        pushSample(model, read.x, read.y, now);
-                    }
-                    // Mid-drag animation: the pet runs toward where it
-                    // is being pulled, from the same 100ms velocity
-                    // tail the release uses (per-frame dx flaps).
-                    if (releaseVelocity(model)) |vel| {
-                        // The held pet keeps showing motion for the whole
-                        // gesture, not just once it clears the release-throw
-                        // threshold (physics_min_vel, tuned for "is this a
-                        // throw" — much coarser than "which way is it facing
-                        // right now"). A shared threshold here (matching the
-                        // idle check) means every velocity magnitude maps to
-                        // SOME state, so a moderate, controlled drag no
-                        // longer freezes on the pose it happened to have
-                        // when it crossed 20px/s.
-                        const held_motion_threshold = 20;
-                        if (vel.x >= held_motion_threshold) {
-                            setThrowState(model, .@"running-right", fx);
-                        } else if (vel.x <= -held_motion_threshold) {
-                            setThrowState(model, .@"running-left", fx);
-                        } else if (@abs(vel.x) < held_motion_threshold and @abs(vel.y) < held_motion_threshold) {
-                            setThrowState(model, .idle, fx);
-                        }
-                    }
-                    return;
-                }
-                // Release: velocity from our own 100ms sample tail,
-                // the WebView renderer's computeVelocity semantics.
-                model.dragging = false;
-                const velocity = releaseVelocity(model) orelse {
-                    model.sample_len = 0;
-                    return;
-                };
-                model.sample_len = 0;
-                if (@abs(velocity.x) < 1 and @abs(velocity.y) < 1) return;
-                model.throwing = true;
-                model.vx = velocity.x;
-                model.vy = velocity.y;
-                model.throw_elapsed_ms = 0;
-                model.last_physics_ms = now;
+            if (!model.dragging) {
+                // Nothing left to drive (shouldn't normally happen: the
+                // timer is cancelled the moment both flags clear).
+                cancelPhysicsTimer(fx);
                 return;
             }
-            const pet_w = frame_w * model.scale;
-            const pet_h = frame_h * model.scale;
-            // The window is fitted to the sprite, so the pet rect IS
-            // the window rect.
-            const inside = read.cursor_x >= read.x and read.cursor_x <= read.x + pet_w and
-                read.cursor_y >= read.y and read.cursor_y <= read.y + pet_h;
-            if (read.primary_down and !model.primary_was_down and inside) {
-                model.dragging = true;
-                model.grab_dx = read.cursor_x - read.x;
-                model.grab_dy = read.cursor_y - read.y;
-                model.sample_len = 0;
-                pushSample(model, read.x, read.y, now);
+            const read = fx.moveWindow("main", 0, 0, false) orelse return;
+            fx.requestGpuSurfaceFrame(1, canvas_label);
+            if (read.primary_down) {
+                // Follow the cursor keeping the grab offset, and
+                // record OUR OWN applied positions: the app drives
+                // the drag, so it has perfect knowledge of the
+                // gesture, no host telemetry involved.
+                const dx = (read.cursor_x - model.grab_dx) - read.x;
+                const dy = (read.cursor_y - model.grab_dy) - read.y;
+                if (dx != 0 or dy != 0) {
+                    if (fx.moveWindow("main", dx, dy, false)) |moved| {
+                        pushSample(model, moved.x, moved.y, now);
+                    }
+                } else {
+                    pushSample(model, read.x, read.y, now);
+                }
+                // Mid-drag animation: the pet runs toward where it
+                // is being pulled, from the same 100ms velocity
+                // tail the release uses (per-frame dx flaps).
+                if (releaseVelocity(model)) |vel| {
+                    // The held pet keeps showing motion for the whole
+                    // gesture, not just once it clears the release-throw
+                    // threshold (physics_min_vel, tuned for "is this a
+                    // throw" — much coarser than "which way is it facing
+                    // right now"). A shared threshold here (matching the
+                    // idle check) means every velocity magnitude maps to
+                    // SOME state, so a moderate, controlled drag no
+                    // longer freezes on the pose it happened to have
+                    // when it crossed the threshold. Configurable
+                    // (Settings > Appearance): 0 means "always show
+                    // the running pose while held, never idle".
+                    const held_motion_threshold = model.held_motion_threshold;
+                    if (vel.x >= held_motion_threshold) {
+                        setThrowState(model, .@"running-right", fx);
+                    } else if (vel.x <= -held_motion_threshold) {
+                        setThrowState(model, .@"running-left", fx);
+                    } else if (@abs(vel.x) < held_motion_threshold and @abs(vel.y) < held_motion_threshold) {
+                        setThrowState(model, .idle, fx);
+                    }
+                }
+                return;
             }
-            model.primary_was_down = read.primary_down;
-        },
-        .physics_tick => |timer| {
-            _ = timer;
+            // Release: velocity from our own 100ms sample tail,
+            // the WebView renderer's computeVelocity semantics.
+            model.dragging = false;
+            const velocity = releaseVelocity(model) orelse {
+                model.sample_len = 0;
+                cancelPhysicsTimer(fx);
+                return;
+            };
+            model.sample_len = 0;
+            if (@abs(velocity.x) < 1 and @abs(velocity.y) < 1) {
+                cancelPhysicsTimer(fx);
+                return;
+            }
+            model.throwing = true;
+            model.vx = velocity.x;
+            model.vy = velocity.y;
+            model.throw_elapsed_ms = 0;
+            model.last_physics_ms = now;
+            // physics_tick stays armed to drive the throw.
         },
         .poll_tick => |timer| {
             if (timer.outcome != .fired) return;
@@ -1993,6 +2060,7 @@ fn settingsView(ui: *AppUi, model: *const Model) AppUi.Node {
         shown += 1;
     }
     const scale_fraction: f32 = (model.scale - 0.4) / 0.8;
+    const held_motion_fraction: f32 = @floatCast(model.held_motion_threshold / 100);
     // One scrollable page: the root scroll takes the window frame and
     // everything - full pet catalog included - flows inside it. No
     // more per-section band budgets.
@@ -2030,6 +2098,15 @@ fn settingsView(ui: *AppUi, model: *const Model) AppUi.Node {
                     ui.text(.{ .size = .sm, .style_tokens = .{ .foreground = .text_muted } }, "Adjust the size of your pet"),
                 }),
                 ui.el(.slider, .{ .width = 150, .value = scale_fraction, .on_value = AppUi.valueMsg(.set_scale), .semantics = .{ .label = "Pet size" } }, .{}),
+            }),
+        }),
+        ui.el(.panel, .{ .style_tokens = .{ .background = .surface, .radius = .md } }, .{
+            ui.row(.{ .padding = 12, .cross = .center, .gap = 12 }, .{
+                ui.column(.{ .grow = 1 }, .{
+                    ui.text(.{}, "Held motion sensitivity"),
+                    ui.text(.{ .size = .sm, .style_tokens = .{ .foreground = .text_muted } }, "Lower = keeps running while held even when barely moving. 0 = always"),
+                }),
+                ui.el(.slider, .{ .width = 150, .value = held_motion_fraction, .on_value = AppUi.valueMsg(.set_held_motion_threshold), .semantics = .{ .label = "Held motion sensitivity" } }, .{}),
             }),
         }),
         ui.el(.panel, .{ .style_tokens = .{ .background = .surface, .radius = .md } }, .{

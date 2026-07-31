@@ -1,9 +1,93 @@
 --- /c/Users/e8910/AppData/Local/Temp/claude/C--Users-e8910-Documents-HitokoePet/9956bb5d-4d92-4f46-bfc8-56adab5167e0/scratchpad/native-sdk-fork/src/runtime/effects.zig	2026-07-28 23:12:05.289805100 +0900
-+++ /c/Users/e8910/Documents/HitokoePet/tools/native-sdk-fork/src/runtime/effects.zig	2026-07-31 15:44:23.223603200 +0900
-@@ -3355,6 +3355,22 @@
++++ /c/Users/e8910/Documents/HitokoePet/tools/native-sdk-fork/src/runtime/effects.zig	2026-07-31 16:27:47.350710200 +0900
+@@ -224,6 +224,25 @@
+ pub const MoveWindowResult = platform.MoveWindowResult;
+ pub const WindowResizeAnchor = platform.WindowResizeAnchor;
+ 
++/// Type-erased handle to the runtime's tray verbs, bound onto the effects
++/// channel (`bindTrayActions`) so `update` can drive a REAL status-bar/
++/// notification-area icon. Routed through the runtime (not straight to
++/// `PlatformServices.createTray`) because the runtime also stores each
++/// item's declared `command` string for later `tray_action` -> `onCommand`
++/// dispatch (`RuntimeSystemServices.storeTrayItems`) — calling the
++/// platform service directly would create the icon but leave every click
++/// firing the same fallback command, unable to tell items apart.
++/// Constructed by `UiApp`, mirroring `WindowActionBinding`.
++pub const TrayActionBinding = struct {
++    context: *anyopaque,
++    create_fn: *const fn (context: *anyopaque, options: TrayOptions) bool,
++    update_menu_fn: *const fn (context: *anyopaque, items: []const TrayMenuItem) bool,
++    remove_fn: *const fn (context: *anyopaque) void,
++};
++
++pub const TrayOptions = platform.TrayOptions;
++pub const TrayMenuItem = platform.TrayMenuItem;
++
+ /// Type-erased handle to the embedding host's named-command services,
+ /// bound onto the effects channel (`bindHostCalls`). This is the seam
+ /// behind `hostRequest`/`hostSend` — the generic named host call a
+@@ -1789,6 +1808,12 @@
+         /// by `UiApp` alongside the services — the seam behind
+         /// app-drawn window controls (loop-thread only).
+         window_actions: ?WindowActionBinding = null,
++        /// The runtime's tray verbs (create/update/remove the status-bar
++        /// icon), bound by `UiApp` alongside `window_actions` — routed
++        /// through the runtime rather than the platform services
++        /// directly so item->command lookups on `tray_action` resolve
++        /// (loop-thread only).
++        tray_actions: ?TrayActionBinding = null,
+         /// The embedding host's named-command services (`hostSend` /
+         /// `hostRequest`), bound by whoever hosts a transpiled app core
+         /// (loop-thread only). Null means no host services: sends drop,
+@@ -2254,6 +2279,13 @@
+             if (self.window_actions == null) self.window_actions = binding;
+         }
+ 
++        /// Point tray actions at the runtime's tray verbs (bound by
++        /// `UiApp.bindEffectsChannel`). Loop-thread only; the first bind
++        /// sticks.
++        pub fn bindTrayActions(self: *Self, binding: TrayActionBinding) void {
++            if (self.tray_actions == null) self.tray_actions = binding;
++        }
++
+         /// Point named host commands at the embedding host's services
+         /// (see `HostCallBinding`). Loop-thread only; the first bind
+         /// sticks.
+@@ -3355,6 +3387,53 @@
              return binding.resize_fn(binding.context, window_label, width, height, anchor);
          }
  
++        /// Create (or replace) the OS status-bar / notification-area
++        /// icon — macOS menu bar, Windows the "hidden icons" tray flyout,
++        /// Linux the systray protocol. `options.items`' declared
++        /// `command` strings dispatch through the SAME `onCommand` path
++        /// as `.menus` on a click. False under the fake executor, when no
++        /// tray actions are bound, or when the host lacks a tray (Linux
++        /// desktops without one — see `supportsFeature(.tray)` before
++        /// relying on it as the app's only way to reopen/quit).
++        pub fn createTray(self: *Self, options: TrayOptions) bool {
++            if (self.executor == .fake) return false;
++            const binding = self.tray_actions orelse return false;
++            return binding.create_fn(binding.context, options);
++        }
++
++        /// Replace the tray's menu items (e.g. toggling a checkbox
++        /// label) without recreating the icon. Same availability caveats
++        /// as `createTray`.
++        pub fn updateTrayMenu(self: *Self, items: []const TrayMenuItem) bool {
++            if (self.executor == .fake) return false;
++            const binding = self.tray_actions orelse return false;
++            return binding.update_menu_fn(binding.context, items);
++        }
++
++        /// Remove the tray icon. No-op under the fake executor, when no
++        /// tray actions are bound, or when none was ever created.
++        pub fn removeTray(self: *Self) void {
++            if (self.executor == .fake) return;
++            const binding = self.tray_actions orelse return;
++            binding.remove_fn(binding.context);
++        }
++
 +        /// Ask the platform to present the named gpu_surface view's next
 +        /// frame as soon as the pacing grid allows, rather than waiting
 +        /// for the view's own animation timer to advance. Fire-and-forget

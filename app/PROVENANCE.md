@@ -96,6 +96,43 @@ unified diff を保存済み。フォークを再取得・再ビルドしたら�
 
 窓がスプライト実寸にフィットしたことで、ドラッグの当たり判定（`main.zig:1469-1470` の「窓＝スプライト」前提）が実際の見た目と一致し、キャラ本体をつまんでドラッグできるようになった（従来は窓が大きすぎたため、当たり判定の矩形とキャラの描画位置がズレ、上部の狭い帯状の領域しか掴めなかった）。
 
+## 固定 Native SDK フォークへの Runtime 層改変（2026-07-31 続き）
+
+app 側からトレイ（`fx.createTray`）を使うための配線。`PlatformServices.createTray` を直接
+呼ぶだけでは不十分（トレイ項目の `command` 文字列が `Runtime.tray_items` に保存されず、
+クリック時に `trayCommandNameForItem` がフォールバック文字列しか返せない）と判明したため、
+既存の `WindowActionBinding`（`moveWindow`/`resizeWindow` 等が使う、`context=runtime` を
+型消去して渡すパターン）と同型の **`TrayActionBinding`** を新設し、`Runtime.createTray`
+（`storeTrayItems` を伴う本物の実装）へ配線した。
+
+| 対象ファイル | 改変 |
+| --- | --- |
+| `src/runtime/effects.zig` | `TrayActionBinding` 型、`Effects.tray_actions` フィールド、`bindTrayActions`、`fx.createTray`/`updateTrayMenu`/`removeTray` を追加 |
+| `src/runtime/ui_app.zig` | `effectsCreateTray`/`effectsUpdateTrayMenu`/`effectsRemoveTray`（`context` を `*Runtime` にキャストし本物の `Runtime.createTray` 等を呼ぶ）を追加し、`bindEffectsChannel` で配線 |
+
+`app/src/main.zig` 側: `.frame_clock` の初回に `fx.createTray` を1回呼び、右クリックメニューと
+同じ `petdex.settings`/`petdex.close` コマンド文字列を持つ2項目を登録（`onCommand` がそのまま
+使い回せる）。`app.zon` の `.capabilities` に `"tray"` を追加。実機確認: トレイ作成後もクラッシュ
+せず継続動作。
+
+## ドラッグ/投擲を専用タイマーへ分離（2026-07-31、カクつき対策）
+
+従来、ドラッグ追従と投擲物理は `.frame_clock`（実際に GPU フレームが提示された時だけ発火）
+の中で行っていた。Windows は `gpu_present_path=pixels`（CPUソフトウェア合成）で毎フレームの
+コストが不安定なため、再描画の遅延がそのまま位置更新の遅延＝カクつきに直結していた。
+
+upstream に元々あった未使用の `physics_timer_key`/`physics_tick_ms`（16ms、`.physics_tick`
+ハンドラは空実装のまま放置されていた）を完成させ、ドラッグ追従・投擲物理を **専用の
+16ms 反復タイマー**（描画完了を待たない、独立した一定間隔）に移した。`.frame_clock` は
+ドラッグ開始検出（低頻度で十分）と初回セットアップのみを担当し、開始を検出したら
+`armPhysicsTimer` でタイマーを起動、ジェスチャー終了（投擲停止 or 速度不足での解放）で
+`cancelPhysicsTimer` して止める（アイドル時の常時 60Hz ポーリングを避け、SPEC のアイドルCPU
+削減方針に沿う）。再描画自体は `requestGpuSurfaceFrame` で別途要求し、位置更新と映像を
+分離した。
+
+実機検証（合成ドラッグ、カーソル移動量 160,90px）: 修正前は結果が 94,62px 相当までしか
+届かない誤差があったが、修正後は 160,90px と完全一致。右クリック・Ctrl+W も回帰なし。
+
 ### 未達（build 段階で継続）: 透過（背景の抜き）
 
 Windows での per-pixel alpha 透過は**未実装**。原因を特定済み:
