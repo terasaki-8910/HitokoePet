@@ -274,9 +274,16 @@ pub fn replaceSymlink(target: []const u8, link: []const u8) bool {
 
 /// Own pid, for the /whoami endpoint. std has no portable accessor in
 /// 0.16, so this is the one genuine per-platform branch in this file.
+/// Linux gets its own raw-syscall arm (`std.os.linux.getpid`, no libc)
+/// rather than falling into the `std.c.getpid()` arm below: this app's
+/// analysis build target does not link libc on Linux (macOS does, by
+/// platform convention), and `extern "c"` there is a hard build error
+/// — "dependency on libc must be explicitly specified" — not a runtime
+/// one, caught by CI (2026-08-01, this app's first-ever Linux build).
 pub fn processId() u32 {
     return switch (builtin.os.tag) {
         .windows => std.os.windows.GetCurrentProcessId(),
+        .linux => @intCast(std.os.linux.getpid()),
         else => @intCast(std.c.getpid()),
     };
 }
@@ -371,8 +378,17 @@ extern "c" fn ttyname_r(fd: c_int, buf: [*]u8, buflen: usize) c_int;
 /// fd 0 is the direct route and needs no PID lookup at all). Empty
 /// when stdin isn't a real tty or the platform has none of this
 /// (Windows: use `currentConsoleWindowHandle` instead).
+/// Linux takes the `/proc/self/fd/0` symlink route instead of
+/// `ttyname_r`: same libc-linking problem as `processId` above, and
+/// `/proc/self/fd/<n>` resolving to the tty device path is the kernel's
+/// own documented behavior for a tty fd, not a workaround.
 pub fn currentTty(buf: []u8) []const u8 {
     if (builtin.os.tag == .windows) return "";
+    if (builtin.os.tag == .linux) {
+        const rc = std.os.linux.readlink("/proc/self/fd/0", buf.ptr, buf.len);
+        if (std.os.linux.errno(rc) != .SUCCESS) return "";
+        return buf[0..rc];
+    }
     if (ttyname_r(0, buf.ptr, buf.len) != 0) return "";
     const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
     return buf[0..len];
