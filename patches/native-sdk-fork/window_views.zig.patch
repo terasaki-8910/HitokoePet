@@ -1,0 +1,10 @@
+--- C:\Users\e8910\AppData\Local\Temp\claude\C--Users-e8910-Documents-HitokoePet\8bf905b6-3cef-4a12-aad4-65c5cce348a0\scratchpad\pristine/src/runtime/window_views.zig	2026-08-01 05:43:30.165817500 +0900
++++ tools/native-sdk-fork/src/runtime/window_views.zig	2026-08-01 05:38:11.024738400 +0900
+@@ -48,6 +48,7 @@
+         pub const removeShellLayoutForWindow = WindowStorageMethods.removeShellLayoutForWindow;
+         pub const setFocusedIndex = WindowStorageMethods.setFocusedIndex;
+         pub const findWindowIndexById = WindowStorageMethods.findWindowIndexById;
++        pub const isWindowTransparent = WindowStorageMethods.isWindowTransparent;
+         pub const findWindowIndexByLabel = WindowStorageMethods.findWindowIndexByLabel;
+         pub const allocateWindowId = WindowStorageMethods.allocateWindowId;
+         pub const allocateViewId = WindowStorageMethods.allocateViewId;

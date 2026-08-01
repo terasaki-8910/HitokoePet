@@ -1,5 +1,5 @@
---- /c/Users/e8910/AppData/Local/Temp/claude/C--Users-e8910-Documents-HitokoePet/9956bb5d-4d92-4f46-bfc8-56adab5167e0/scratchpad/native-sdk-fork/src/runtime/ui_app.zig	2026-07-28 23:12:05.307881600 +0900
-+++ /c/Users/e8910/Documents/HitokoePet/tools/native-sdk-fork/src/runtime/ui_app.zig	2026-07-31 16:28:04.765714200 +0900
+--- C:\Users\e8910\AppData\Local\Temp\claude\C--Users-e8910-Documents-HitokoePet\8bf905b6-3cef-4a12-aad4-65c5cce348a0\scratchpad\true_pristine/src/runtime/ui_app.zig	2026-08-01 05:44:37.654266000 +0900
++++ tools/native-sdk-fork/src/runtime/ui_app.zig	2026-08-01 16:59:31.040726600 +0900
 @@ -1084,6 +1084,12 @@
                  .focus_fn = effectsFocusWindowByLabel,
                  .minimize_fn = effectsMinimizeWindowByLabel,
@@ -13,7 +13,85 @@
              if (runtime.options.session_recorder) |recorder| {
                  self.effects.bindJournal(recorder.effectJournal());
              }
-@@ -3632,3 +3638,20 @@
+@@ -3090,7 +3096,42 @@
+             // invalidates before the first present, and the surface would
+             // stay blank until the first input arrives.
+             const services = runtime.options.platform.services;
+-            const clear_color = self.effectiveTokens().colors.background;
++            // A transparent window's gpu_surface must clear to alpha 0, not
++            // the theme's opaque background: the reference renderer paints
++            // this color everywhere no widget covers, and an opaque clear
++            // there is exactly what turned `.transparent = true` windows
++            // into solid theme-colored rectangles instead of real
++            // per-pixel-alpha content (see `RuntimeWindow.transparent`).
++            const is_transparent_window = runtime.isWindowTransparent(frame_event.window_id);
++            const clear_color = if (is_transparent_window)
++                canvas.Color.rgba8(0, 0, 0, 0)
++            else
++                self.effectiveTokens().colors.background;
++            // A transparent window's gpu_surface view can share
++            // `self.pixel_buffer`/`pixel_scratch` with every OTHER
++            // window/view in the app (main canvas, other companion
++            // windows) across the same process's frames — the buffer
++            // only grows, never shrinks or gets zeroed between reuses.
++            // A `.load` (partial/dirty-rect) pass only `clearRect`s the
++            // changed sub-region (`ReferenceRenderSurface.renderPass`),
++            // leaving every other byte exactly as some PRIOR frame (or
++            // allocation) left it. Observed via direct pixel dump: a
++            // transparent window's untouched "empty" area reads back as
++            // scattered non-transparent garbage on some frames — not a
++            // stale ghost, live and reproducible, and NOT a simple
++            // uninitialized-on-first-alloc case (zeroing fresh
++            // allocations, tried first, did not fix it: the buffer is
++            // usually already large enough that no fresh allocation
++            // happens). For an opaque window this is invisible (the
++            // untouched byte was already the right theme color from an
++            // earlier full clear); for a transparent one it reads back
++            // as real pixels through real alpha. These views are small
++            // (a few hundred KB at most) and update rarely enough that
++            // forcing every frame to fully clear+redraw is free —
++            // trade the dirty-rect optimization for the guarantee that
++            // a transparent window's surface is never partially built
++            // from some earlier frame's (or window's) leftover bytes.
++            const force_full_repaint = is_transparent_window;
+             var packet_attempted = false;
+             if (services.present_gpu_surface_packet_fn != null or services.present_gpu_surface_packet_binary_fn != null) {
+                 packet_attempted = true;
+@@ -3103,7 +3144,7 @@
+                             .timestamp_ns = frame_event.timestamp_ns,
+                             .surface_size = frame_event.size,
+                             .scale = frame_event.scale_factor,
+-                            .full_repaint = frame_event.canvas_frame_full_repaint or installing,
++                            .full_repaint = frame_event.canvas_frame_full_repaint or installing or force_full_repaint,
+                         },
+                         runtime.canvasFrameScratchStorage(),
+                         clear_color,
+@@ -3128,7 +3169,7 @@
+                     .timestamp_ns = frame_event.timestamp_ns,
+                     .surface_size = frame_event.size,
+                     .scale = frame_event.scale_factor,
+-                    .full_repaint = frame_event.canvas_frame_full_repaint or packet_attempted or installing,
++                    .full_repaint = frame_event.canvas_frame_full_repaint or packet_attempted or installing or force_full_repaint,
+                 },
+                 runtime.canvasFrameScratchStorage(),
+                 self.pixel_buffer,
+@@ -3148,6 +3189,15 @@
+                 if (self.pixel_buffer.len > 0) self.backing.free(self.pixel_buffer);
+                 self.pixel_buffer = &.{};
+                 self.pixel_buffer = try self.backing.alloc(u8, pixel_size.byte_len);
++                // `alloc` does not zero: a `.load` render pass only
++                // `clearRect`s the changed sub-region (see
++                // `ReferenceRenderSurface.renderPass`'s `.load` branch),
++                // so any byte a widget never draws into keeps whatever
++                // was last here — on first allocation, raw heap bytes.
++                // Zero-BGRA reads as fully transparent, matching what an
++                // empty area on a transparent window should show, so
++                // this is the right default regardless of alpha mode.
++                @memset(self.pixel_buffer, 0);
+             }
+             if (self.pixel_scratch.len < pixel_size.byte_len) {
+                 if (self.pixel_scratch.len > 0) self.backing.free(self.pixel_scratch);
+@@ -3632,3 +3682,20 @@
      runtime.minimizeWindow(window_id) catch return false;
      return true;
  }

@@ -1,0 +1,169 @@
+name: build desktop app
+
+# HitokoePet の app/ は上流 SDK (Railly/native の feat/floating-window-0.5.3
+# フォーク、コミット固定) を使う。npm 版 @native-sdk/cli は app.zon の
+# .floating/.transparent を ParseZon で拒否するため使えない
+# （SPEC.md / app/PROVENANCE.md「Native SDK のバージョン固定」参照）。
+# このフォークはリポジトリに含めていない（tools/native-sdk-fork/ は
+# .gitignore 済み）ので、CIでは毎回:
+#   1. 上流フォークをピン留めコミットで clone
+#   2. patches/native-sdk-fork/*.patch を適用（本プロジェクト固有の改変
+#      — Windows実透過やフォーカス送りなど）
+#   3. フォーク自身を `zig build cli` でビルドし、その native バイナリで
+#      app/ をビルド
+# という手順を踏む。3プラットフォームとも実機OSランナーでビルドする
+# （クロスコンパイルではない — Linux は GTK4、macOS は Cocoa 連携があり
+# クロスビルドは通らない）。
+#
+# 成果物はインストーラーではなくポータブルな形（macOSは .app バンドル、
+# Windows/Linuxはバイナリ+リソースのフォルダ）。macOS の .app は
+# ad-hoc署名のみ（Apple Developer証明書は無いため） — Gatekeeperは
+# 初回起動時に警告を出すので、右クリック→開く、が必要（ユーザーへの
+# 案内はREADME/リリースノート側で行う想定）。
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+env:
+  NATIVE_SDK_REMOTE: "https://github.com/Railly/native.git"
+  NATIVE_SDK_BRANCH: "feat/floating-window-0.5.3"
+  NATIVE_SDK_REF: "65d4885cb5f76a5d1f33cace56b93a898f7b2cb3"
+
+jobs:
+  build:
+    name: build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-14
+            binary_name: petdex-desktop-native
+            package_target: macos
+            output_name: HitokoePet.app
+            artifact_name: HitokoePet-macos
+          - platform: windows
+            runner: windows-2022
+            binary_name: petdex-desktop-native.exe
+            package_target: windows
+            output_name: HitokoePet-windows
+            artifact_name: HitokoePet-windows
+          - platform: linux
+            runner: ubuntu-latest
+            binary_name: petdex-desktop-native
+            package_target: linux
+            output_name: HitokoePet-linux
+            artifact_name: HitokoePet-linux
+
+    steps:
+      - name: Checkout HitokoePet
+        uses: actions/checkout@v4
+
+      - name: Install Linux GUI libraries
+        # SDKのLinuxホストはgtk4にリンクする。webp-pixbuf-loaderが無いと
+        # gdk-pixbufがwebpをデコードできず、ペット（インストール済みは
+        # ほぼ全て.webp）が空表示になる（上流CIの既知の落とし穴）。
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libx11-dev pkg-config webp-pixbuf-loader
+
+      - name: Clone the pinned Native SDK fork
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$NATIVE_SDK_BRANCH" "$NATIVE_SDK_REMOTE" tools/native-sdk-fork
+          git -C tools/native-sdk-fork fetch --depth 1 origin "$NATIVE_SDK_REF"
+          git -C tools/native-sdk-fork checkout --detach "$NATIVE_SDK_REF"
+
+      - name: Apply HitokoePet's fork patches
+        # patches/native-sdk-fork/*.patch は本プロジェクトがフォークに
+        # 加えた改変（Windows実透過のUpdateLayeredWindow化、吹き出し
+        # タップでのウィンドウフォーカス送り、等）。生成時に
+        # 「ピン留めコミット+全パッチ適用 = 現在の tools/native-sdk-fork/
+        # と完全一致」をパッチファイルごとに検証済み（2026-08-01）。
+        shell: bash
+        run: |
+          set -euo pipefail
+          for p in patches/native-sdk-fork/*.patch; do
+            echo "applying $p"
+            patch -p0 < "$p"
+          done
+
+      - name: Install Zig 0.16.0
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "0.16.0"
+
+      - name: Build the native CLI from the pinned SDK
+        working-directory: tools/native-sdk-fork
+        shell: bash
+        run: |
+          set -euo pipefail
+          zig build cli
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            echo "NATIVE_CLI=$GITHUB_WORKSPACE/tools/native-sdk-fork/zig-out/bin/native.exe" >> "$GITHUB_ENV"
+          else
+            echo "NATIVE_CLI=$GITHUB_WORKSPACE/tools/native-sdk-fork/zig-out/bin/native" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build HitokoePet
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          # -Dcpu=baseline: 配布バイナリはビルドしたランナーのCPUではなく
+          # ユーザーの手元CPUで動く必要がある。指定しないとZigはホストCPUを
+          # 対象にし、新しいRunnerのAVX-512命令等を古いCPUが理解できず
+          # 不正命令クラッシュになる（上流プロジェクトが実際に踏んだ既知の
+          # 問題、release workflow のコメント参照）。
+          "$NATIVE_CLI" build -Dcpu=baseline
+          ls -lh zig-out/bin/
+
+      - name: Run app test suite
+        working-directory: app
+        shell: bash
+        run: |
+          "$NATIVE_CLI" test
+
+      - name: Package (macOS .app bundle, ad-hoc signed)
+        if: matrix.platform == 'macos'
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$NATIVE_CLI" package --target macos \
+            --binary "zig-out/bin/${{ matrix.binary_name }}" \
+            --signing adhoc \
+            --output "$RUNNER_TEMP/${{ matrix.output_name }}"
+
+      - name: Package (Windows, portable folder)
+        if: matrix.platform == 'windows'
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$NATIVE_CLI" package --target windows \
+            --binary "zig-out/bin/${{ matrix.binary_name }}" \
+            --output "$RUNNER_TEMP/${{ matrix.output_name }}"
+
+      - name: Package (Linux, portable folder)
+        if: matrix.platform == 'linux'
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$NATIVE_CLI" package --target linux \
+            --binary "zig-out/bin/${{ matrix.binary_name }}" \
+            --output "$RUNNER_TEMP/${{ matrix.output_name }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ runner.temp }}/${{ matrix.output_name }}
+          if-no-files-found: error

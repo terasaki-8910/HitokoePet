@@ -1,0 +1,15 @@
+--- C:\Users\e8910\AppData\Local\Temp\claude\C--Users-e8910-Documents-HitokoePet\8bf905b6-3cef-4a12-aad4-65c5cce348a0\scratchpad\pristine/src/runtime/state.zig	2026-08-01 05:43:30.163813700 +0900
++++ tools/native-sdk-fork/src/runtime/state.zig	2026-08-01 05:36:33.991388100 +0900
+@@ -33,6 +33,12 @@
+     main_parent: ?[]const u8 = null,
+     main_zoom: f64 = 1.0,
+     main_focused: bool = false,
++    /// Mirrors `WindowCreateOptions.transparent` / `ShellWindow.transparent`
++    /// for the present path: a gpu_surface view on a transparent window
++    /// clears to alpha 0 instead of the design tokens' opaque background
++    /// (`presentFrame` in ui_app.zig), so the OS composites the app's real
++    /// per-pixel alpha instead of a solid background-colored rectangle.
++    transparent: bool = false,
+     label_storage: [platform.max_window_label_bytes]u8 = undefined,
+     title_storage: [platform.max_window_title_bytes]u8 = undefined,
+     main_parent_storage: [platform.max_view_label_bytes]u8 = undefined,

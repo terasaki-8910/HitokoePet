@@ -1,0 +1,27 @@
+--- C:\Users\e8910\AppData\Local\Temp\claude\C--Users-e8910-Documents-HitokoePet\8bf905b6-3cef-4a12-aad4-65c5cce348a0\scratchpad\pristine/src/runtime/window_storage.zig	2026-08-01 05:43:30.164817200 +0900
++++ tools/native-sdk-fork/src/runtime/window_storage.zig	2026-08-01 05:36:43.503338200 +0900
+@@ -67,6 +67,7 @@
+             if (Self.findWindowIndexById(self, id) != null) return error.DuplicateWindowId;
+             if (Self.findWindowIndexByLabel(self, label) != null) return error.DuplicateWindowLabel;
+             const index = try Self.reserveWindow(self, id, label, options.title, source, source_reloads_from_app);
++            self.windows[index].transparent = options.transparent;
+             var native_created = false;
+             errdefer Self.removeWindowAt(self, index);
+             errdefer if (native_created) self.options.platform.services.closeWindow(id) catch {};
+@@ -283,6 +284,16 @@
+             return null;
+         }
+ 
++        /// Whether the window was declared `.transparent = true` (manifest
++        /// shell window or `windows_fn` descriptor) — the present path's
++        /// signal for clearing to alpha 0 instead of the opaque theme
++        /// background. Unknown ids read as opaque (fail toward the
++        /// existing behavior).
++        pub fn isWindowTransparent(self: *const Runtime, window_id: platform.WindowId) bool {
++            const index = Self.findWindowIndexById(self, window_id) orelse return false;
++            return self.windows[index].transparent;
++        }
++
+         pub fn findWindowIndexByLabel(self: *const Runtime, label: []const u8) ?usize {
+             for (self.windows[0..self.window_count], 0..) |window, index| {
+                 if (std.mem.eql(u8, window.info.label, label)) return index;

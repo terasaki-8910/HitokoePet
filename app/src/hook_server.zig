@@ -47,6 +47,16 @@ pub const Bubble = struct {
     agent_len: usize = 0,
     busy: bool = false,
     counter: u64 = 0,
+    /// Windows `HWND` of the console hosting the session this bubble
+    /// represents, captured by the hook at post-time (see
+    /// `hook_runner.run`). 0 = unknown/unsupported platform — tapping
+    /// the bubble is then a no-op rather than an error.
+    terminal_hwnd: u64 = 0,
+    /// macOS/Linux controlling tty path (e.g. `/dev/ttys012`) for the
+    /// same session, the non-Windows half of bubble-tap-focus (SPEC
+    /// 3.6). Empty = unknown/unsupported.
+    terminal_tty: [64]u8 = @splat(0),
+    terminal_tty_len: usize = 0,
 };
 
 /// Shared mailbox between the server thread (producer) and the app's
@@ -102,7 +112,7 @@ pub const Mailbox = struct {
         return head;
     }
 
-    pub fn setBubble(self: *Mailbox, text: []const u8, agent: []const u8, title: []const u8, busy: bool) u64 {
+    pub fn setBubble(self: *Mailbox, text: []const u8, agent: []const u8, title: []const u8, busy: bool, terminal_hwnd: u64, terminal_tty: []const u8) u64 {
         self.mutex.lock();
         defer self.mutex.unlock();
         const n = @min(text.len, self.bubble.text.len);
@@ -115,6 +125,10 @@ pub const Mailbox = struct {
         @memcpy(self.bubble.title[0..tn], title[0..tn]);
         self.bubble.title_len = tn;
         self.bubble.busy = busy;
+        self.bubble.terminal_hwnd = terminal_hwnd;
+        const ttn = @min(terminal_tty.len, self.bubble.terminal_tty.len);
+        @memcpy(self.bubble.terminal_tty[0..ttn], terminal_tty[0..ttn]);
+        self.bubble.terminal_tty_len = ttn;
         self.bubble.counter += 1;
         self.bubble_dirty = true;
         return self.bubble.counter;
@@ -344,7 +358,9 @@ fn route(server: *Server, conn: *Conn, method: []const u8, path: []const u8, hea
         const agent = jsonString(body, "agent_source") orelse "";
         const title = jsonString(body, "title") orelse "";
         const busy = std.mem.indexOf(u8, body, "\"busy\":true") != null;
-        const counter = mailbox.setBubble(capped, agent[0..@min(agent.len, 24)], title[0..@min(title.len, 96)], busy);
+        const terminal_hwnd: u64 = if (jsonNumber(body, "terminal_hwnd")) |v| @intFromFloat(@max(0, v)) else 0;
+        const terminal_tty = jsonString(body, "terminal_tty") orelse "";
+        const counter = mailbox.setBubble(capped, agent[0..@min(agent.len, 24)], title[0..@min(title.len, 96)], busy, terminal_hwnd, terminal_tty[0..@min(terminal_tty.len, 64)]);
         mirrorBubble(server, capped, counter, title[0..@min(title.len, 96)], agent[0..@min(agent.len, 24)], busy) catch {};
         const out = std.fmt.bufPrint(&scratch, "{{\"ok\":true,\"counter\":{d}}}", .{counter}) catch return;
         return respond(conn, 200, out);

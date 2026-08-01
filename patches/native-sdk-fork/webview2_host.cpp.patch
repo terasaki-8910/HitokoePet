@@ -1,6 +1,21 @@
---- /c/Users/e8910/AppData/Local/Temp/claude/C--Users-e8910-Documents-HitokoePet/9956bb5d-4d92-4f46-bfc8-56adab5167e0/scratchpad/native-sdk-fork/src/platform/windows/webview2_host.cpp	2026-07-28 23:12:05.154226100 +0900
-+++ /c/Users/e8910/Documents/HitokoePet/tools/native-sdk-fork/src/platform/windows/webview2_host.cpp	2026-08-01 04:26:58.198854700 +0900
-@@ -1640,8 +1640,18 @@
+--- /tmp/pristine_webview2_host.cpp	2026-08-01 20:37:44.447689200 +0900
++++ tools/native-sdk-fork/src/platform/windows/webview2_host.cpp	2026-08-01 20:37:34.861513800 +0900
+@@ -324,6 +324,14 @@
+     bool floating = false;
+     bool transparent = false;
+     bool click_through = false;
++    /* HWND_TOPMOST is a one-time SetWindowPos band membership, not a
++     * standing guarantee: other topmost windows (explorer.exe shell
++     * chrome — jump lists, flyouts, drag overlays — observed in
++     * practice) can still land in FRONT of an already-topmost window
++     * within that band. Ticked once per second from the kFrameTimerId
++     * pump (see WM_TIMER) to reclaim the front of the band; see
++     * reassertTopmostIfFloating. */
++    uint32_t topmost_reassert_tick = 0;
+     /* Declared content min-size floor for user resizes; axes <= 0 keep
+      * the natural minimum (WM_GETMINMAXINFO applies the floor). */
+     double min_width = 0;
+@@ -1640,8 +1648,18 @@
      return menu_bar;
  }
  
@@ -19,7 +34,7 @@
      HMENU old_menu = GetMenu(window.hwnd);
      HMENU new_menu = buildMenuBar(host);
      SetMenu(window.hwnd, new_menu);
-@@ -1728,6 +1738,56 @@
+@@ -1728,6 +1746,56 @@
      return false;
  }
  
@@ -76,7 +91,7 @@
  static bool emitShortcutForHwnd(Host *host, HWND hwnd, WPARAM wparam) {
      return emitShortcutForWindow(host, windowForHwnd(host, hwnd), wparam);
  }
-@@ -2943,6 +3003,7 @@
+@@ -2943,6 +3011,7 @@
              const int button = message == WM_LBUTTONUP ? 0 : message == WM_RBUTTONUP ? 1 : 2;
              emitGpuSurfaceInput(host, *view, kGpuInputPointerUp, x, y, button, 0, 0, "", "", gpuModifierFlags());
              if (GetCapture() == hwnd) ReleaseCapture();
@@ -84,7 +99,7 @@
              return 0;
          }
          case WM_MOUSEMOVE: {
-@@ -2981,6 +3042,7 @@
+@@ -2981,6 +3050,7 @@
          case WM_KEYDOWN:
          case WM_SYSKEYDOWN: {
              if (emitShortcutForHwnd(host, GetAncestor(hwnd, GA_ROOT), wparam)) return 0;
@@ -92,7 +107,7 @@
              const std::string key = gpuSurfaceKeyName(wparam);
              if (!key.empty()) {
                  emitGpuSurfaceInput(host, *view, kGpuInputKeyDown, view->gpu_pointer_x, view->gpu_pointer_y, 0, 0, 0, key.c_str(), "", gpuModifierFlags());
-@@ -5043,6 +5105,7 @@
+@@ -5043,6 +5113,7 @@
          case WM_KEYDOWN:
          case WM_SYSKEYDOWN:
              if (host && emitShortcutForHwnd(host, hwnd, wparam)) return 0;
@@ -100,7 +115,44 @@
              break;
          case WM_COMMAND:
              if (host) {
-@@ -5373,16 +5436,30 @@
+@@ -5185,7 +5256,23 @@
+             if (host && handleAppTimerMessage(host, wparam)) return 0;
+             if (host && handleAudioTimerMessage(host, wparam)) return 0;
+             if (host && wparam == kFrameTimerId) {
+-                for (auto &entry : host->windows) emit(host, entry.second, kFrame);
++                for (auto &entry : host->windows) {
++                    Window &window = entry.second;
++                    /* 16ms tick, ~60/s: reassert at ~1/s (kFrameTimerId
++                     * fires per-window, so this is per-window too — a
++                     * bubble and the pet each reclaim independently).
++                     * SWP_NOACTIVATE/NOMOVE/NOSIZE keeps this from
++                     * stealing focus, moving, or resizing; it only
++                     * moves the window to the front of the topmost
++                     * band it is already a member of. */
++                    if (window.floating && window.hwnd) {
++                        if (++window.topmost_reassert_tick >= 60) {
++                            window.topmost_reassert_tick = 0;
++                            SetWindowPos(window.hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
++                        }
++                    }
++                    emit(host, window, kFrame);
++                }
+             }
+             return 0;
+         case WM_GETMINMAXINFO:
+@@ -5230,6 +5317,11 @@
+             if (host) emitAppearanceIfChanged(host, false);
+             break;
+         case WM_CLOSE:
++            /* Hide before destroy: see native_sdk_windows_close_window's
++             * comment — a layered window destroyed without first being
++             * hidden can leave DWM composited content ("ghost" pixels)
++             * on screen at its old position. */
++            ShowWindow(hwnd, SW_HIDE);
+             DestroyWindow(hwnd);
+             return 0;
+         case WM_DESTROY:
+@@ -5373,16 +5465,30 @@
       * extend their own drawing into the caption band — the band itself
       * is reclaimed in WM_NCCALCSIZE, everything else stays standard. */
      DWORD style = WS_OVERLAPPEDWINDOW;
@@ -139,7 +191,7 @@
      }
      /* The requested frame is a CONTENT size in LOGICAL points (the
       * other hosts size the content area); scale it to physical pixels
-@@ -5408,7 +5485,7 @@
+@@ -5408,7 +5514,7 @@
          outer_height = outer.cy;
      }
      HWND hwnd = CreateWindowExW(
@@ -148,7 +200,7 @@
          L"NativeSdkWindowsHost",
          title.c_str(),
          style,
-@@ -6003,6 +6080,98 @@
+@@ -6003,6 +6109,98 @@
      return 1;
  }
  
@@ -247,3 +299,139 @@
  /* Replace a canvas view's window-drag mirror (runtime push after layout
   * installs whose regions changed). Rects arrive flat as x,y,w,h in the
   * view's logical coordinates; exclusions mark the press-claiming
+@@ -6086,6 +6284,18 @@
+     if (found == host->windows.end() || !found->second.hwnd) return 0;
+     destroyNativeViewsForWindow(host, window_id);
+     destroyChildWebViewsForWindow(host, window_id);
++    /* Layered windows (transparent: the bubble, the pet) are composited
++     * by DWM from whatever bitmap the last UpdateLayeredWindow call
++     * handed it, outside the normal invalidate/WM_PAINT cycle a plain
++     * DestroyWindow relies on to clear a window's screen region. Hiding
++     * first gives DWM an explicit signal to drop this window from the
++     * composited scene and repaint whatever it a nut covered — skipping
++     * this step is exactly what leaves a stale "ghost" of the last
++     * frame on screen after close (observed: the bubble window closing
++     * left a frozen fragment of itself behind, surviving even a later
++     * app relaunch, until something else forced that screen region to
++     * repaint) — a well-documented DWM quirk with UpdateLayeredWindow. */
++    ShowWindow(found->second.hwnd, SW_HIDE);
+     DestroyWindow(found->second.hwnd);
+     return 1;
+ }
+@@ -6285,32 +6495,101 @@
+     if (rgba8_len != width * height * 4) return 0;
+     NativeView &view = found->second;
+ 
+-    /* Straight RGBA8 -> top-down BGRA rows for a BI_RGB 32bpp DIB. The
+-     * surface is opaque (alpha_mode "opaque"), so no premultiply is
+-     * needed. The fourth byte is FORCED to 255, not copied: plain GDI
+-     * ignores it, but on hidden-titlebar windows the DWM frame extends
+-     * over the top band and composites its own caption material wherever
+-     * the redirection surface's alpha is 0 — the app's pixels must read
+-     * as opaque there or the whole header band would vanish under DWM
+-     * chrome (only the punched button hole yields on purpose). */
++    auto owner = host->windows.find(view.window_id);
++    /* A chromeless, transparent, single-gpu_surface window (the pet
++     * shape this whole app is) composites through UpdateLayeredWindow
++     * with REAL per-pixel alpha instead of the child-HWND
++     * SetDIBitsToDevice path below. The two are mutually exclusive on
++     * the SAME window: color-key (SetLayeredWindowAttributes, applied
++     * at window-chrome setup) only keys exact black, leaving a hard
++     * (non-antialiased) edge and holes in genuinely-black art;
++     * UpdateLayeredWindow blends every pixel by its real alpha and
++     * needs the source premultiplied — exactly what `gpu_alpha_mode =
++     * "premultiplied"` contracts the renderer to hand us. This is safe
++     * to special-case narrowly (chromeless-only) because the general
++     * multi-view/webview case UpdateLayeredWindow can't represent
++     * (it composites ONE bitmap for the whole window, not per-child)
++     * doesn't apply: a chromeless window is declared with exactly one
++     * gpu_surface view filling it, nothing else to lose. */
++    const bool use_layered_alpha = owner != host->windows.end() && owner->second.transparent && windowIsChromeless(owner->second);
++
+     view.gpu_bgra.resize(width * height * 4);
+     uint8_t *dst = view.gpu_bgra.data();
+     const size_t pixel_count = width * height;
+-    for (size_t index = 0; index < pixel_count; index++) {
+-        const uint8_t *src = rgba8 + index * 4;
+-        dst[index * 4 + 0] = src[2];
+-        dst[index * 4 + 1] = src[1];
+-        dst[index * 4 + 2] = src[0];
+-        dst[index * 4 + 3] = 255;
++    if (use_layered_alpha) {
++        /* The reference software rasterizer stores STRAIGHT alpha
++         * (color channels are NOT scaled by coverage) regardless of the
++         * view's declared gpu_alpha_mode — that field only tells this
++         * present path how to interpret what it receives, it does not
++         * change what the renderer emits. UpdateLayeredWindow's
++         * AC_SRC_ALPHA blend mode requires PREMULTIPLIED input; feeding
++         * it straight alpha over-brightens every partially-transparent
++         * pixel (antialiased edges, soft shadows), which read back as a
++         * colored fringe/halo around the sprite and stray bright/white
++         * streaks wherever the art has a faint low-alpha edge. Convert
++         * here. */
++        for (size_t index = 0; index < pixel_count; index++) {
++            const uint8_t *src = rgba8 + index * 4;
++            const uint16_t a = src[3];
++            dst[index * 4 + 0] = (uint8_t)((src[2] * a + 127) / 255);
++            dst[index * 4 + 1] = (uint8_t)((src[1] * a + 127) / 255);
++            dst[index * 4 + 2] = (uint8_t)((src[0] * a + 127) / 255);
++            dst[index * 4 + 3] = (uint8_t)a;
++        }
++    } else {
++        /* Straight RGBA8 -> top-down BGRA rows for a BI_RGB 32bpp DIB.
++         * The surface is opaque (alpha_mode "opaque"), so no premultiply
++         * is needed. The fourth byte is FORCED to 255, not copied: plain
++         * GDI ignores it, but on hidden-titlebar windows the DWM frame
++         * extends over the top band and composites its own caption
++         * material wherever the redirection surface's alpha is 0 — the
++         * app's pixels must read as opaque there or the whole header
++         * band would vanish under DWM chrome (only the punched button
++         * hole yields on purpose). */
++        for (size_t index = 0; index < pixel_count; index++) {
++            const uint8_t *src = rgba8 + index * 4;
++            dst[index * 4 + 0] = src[2];
++            dst[index * 4 + 1] = src[1];
++            dst[index * 4 + 2] = src[0];
++            dst[index * 4 + 3] = 255;
++        }
+     }
+     view.gpu_buf_width = (int)width;
+     view.gpu_buf_height = (int)height;
+ 
+     /* Hidden-titlebar windows: keep the DWM caption material behind the
+      * button cluster matched to the header the app just presented. */
+-    auto owner = host->windows.find(view.window_id);
+     if (owner != host->windows.end()) syncHiddenCaptionColor(host, owner->second, view, rgba8, width, height);
+ 
++    if (use_layered_alpha && owner != host->windows.end() && owner->second.hwnd) {
++        HDC screen_dc = GetDC(nullptr);
++        HDC mem_dc = CreateCompatibleDC(screen_dc);
++        BITMAPINFO bmi = {};
++        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
++        bmi.bmiHeader.biWidth = (LONG)width;
++        bmi.bmiHeader.biHeight = -(LONG)height; /* top-down */
++        bmi.bmiHeader.biPlanes = 1;
++        bmi.bmiHeader.biBitCount = 32;
++        bmi.bmiHeader.biCompression = BI_RGB;
++        void *dib_bits = nullptr;
++        HBITMAP dib = CreateDIBSection(screen_dc, &bmi, DIB_RGB_COLORS, &dib_bits, nullptr, 0);
++        if (dib && dib_bits) {
++            memcpy(dib_bits, view.gpu_bgra.data(), view.gpu_bgra.size());
++            HGDIOBJ old_bitmap = SelectObject(mem_dc, dib);
++            POINT src_origin = {0, 0};
++            SIZE size = {(int)width, (int)height};
++            BLENDFUNCTION blend = {};
++            blend.BlendOp = AC_SRC_OVER;
++            blend.SourceConstantAlpha = 255;
++            blend.AlphaFormat = AC_SRC_ALPHA;
++            UpdateLayeredWindow(owner->second.hwnd, screen_dc, nullptr, &size, mem_dc, &src_origin, 0, &blend, ULW_ALPHA);
++            SelectObject(mem_dc, old_bitmap);
++            DeleteObject(dib);
++        }
++        DeleteDC(mem_dc);
++        ReleaseDC(nullptr, screen_dc);
++    }
++
+     const size_t sample_index = ((height / 2) * width + width / 2) * 4;
+     const uint8_t sr = rgba8[sample_index + 0];
+     const uint8_t sg = rgba8[sample_index + 1];

@@ -1,0 +1,11 @@
+--- C:\Users\e8910\AppData\Local\Temp\claude\C--Users-e8910-Documents-HitokoePet\8bf905b6-3cef-4a12-aad4-65c5cce348a0\scratchpad\pristine/src/platform/types.zig	2026-08-01 05:43:30.162814000 +0900
++++ tools/native-sdk-fork/src/platform/types.zig	2026-08-01 05:21:40.395087600 +0900
+@@ -831,7 +831,7 @@
+         return (self.backend == .metal or self.backend == .software) and
+             self.pixel_format == .bgra8_unorm and
+             self.present_mode == .timer and
+-            self.alpha_mode == .@"opaque" and
++            (self.alpha_mode == .@"opaque" or self.alpha_mode == .premultiplied) and
+             self.color_space == .srgb and
+             self.vsync;
+     }

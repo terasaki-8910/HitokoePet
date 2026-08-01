@@ -1,0 +1,39 @@
+--- C:\Users\e8910\AppData\Local\Temp\claude\C--Users-e8910-Documents-HitokoePet\8bf905b6-3cef-4a12-aad4-65c5cce348a0\scratchpad\shell_view_tests_current.zig	2026-08-01 05:51:26.020084600 +0900
++++ tools/native-sdk-fork/src/runtime/shell_view_tests.zig	2026-08-01 05:49:12.392537700 +0900
+@@ -564,10 +564,10 @@
+     }));
+     try std.testing.expectError(error.UnsupportedViewKind, harness.runtime.createView(.{
+         .window_id = 1,
+-        .label = "transparent-canvas",
++        .label = "no-alpha-canvas",
+         .kind = .gpu_surface,
+         .frame = geometry.RectF.init(0, 0, 320, 240),
+-        .gpu_surface = .{ .alpha_mode = .premultiplied },
++        .gpu_surface = .{ .alpha_mode = .none },
+     }));
+     try std.testing.expectError(error.UnsupportedViewKind, harness.runtime.createView(.{
+         .window_id = 1,
+@@ -601,4 +601,23 @@
+     try std.testing.expectEqual(platform.GpuSurfaceAlphaMode.@"opaque", supported.gpu_alpha_mode);
+     try std.testing.expectEqual(platform.GpuSurfaceColorSpace.srgb, supported.gpu_color_space);
+     try std.testing.expect(supported.gpu_vsync);
++
++    // Premultiplied alpha is a supported mode (per-pixel-alpha transparent
++    // windows on Windows composite through it via UpdateLayeredWindow —
++    // see webview2_host.cpp), not just opaque.
++    const transparent = try harness.runtime.createView(.{
++        .window_id = 1,
++        .label = "premultiplied-canvas",
++        .kind = .gpu_surface,
++        .frame = geometry.RectF.init(0, 0, 320, 240),
++        .gpu_surface = .{
++            .backend = .metal,
++            .pixel_format = .bgra8_unorm,
++            .present_mode = .timer,
++            .alpha_mode = .premultiplied,
++            .color_space = .srgb,
++            .vsync = true,
++        },
++    });
++    try std.testing.expectEqual(platform.GpuSurfaceAlphaMode.premultiplied, transparent.gpu_alpha_mode);
+ }

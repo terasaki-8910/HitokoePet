@@ -1,5 +1,5 @@
---- /c/Users/e8910/AppData/Local/Temp/claude/C--Users-e8910-Documents-HitokoePet/9956bb5d-4d92-4f46-bfc8-56adab5167e0/scratchpad/native-sdk-fork/src/runtime/effects.zig	2026-07-28 23:12:05.289805100 +0900
-+++ /c/Users/e8910/Documents/HitokoePet/tools/native-sdk-fork/src/runtime/effects.zig	2026-07-31 16:27:47.350710200 +0900
+--- C:/Users/e8910/AppData/Local/Temp/claude/C--Users-e8910-Documents-HitokoePet/8bf905b6-3cef-4a12-aad4-65c5cce348a0/scratchpad/pristine_refetch/src/runtime/effects.zig	2026-08-01 19:52:18.040997300 +0900
++++ tools/native-sdk-fork/src/runtime/effects.zig	2026-07-31 16:27:47.350710200 +0900
 @@ -224,6 +224,25 @@
  pub const MoveWindowResult = platform.MoveWindowResult;
  pub const WindowResizeAnchor = platform.WindowResizeAnchor;

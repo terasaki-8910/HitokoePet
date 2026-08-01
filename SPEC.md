@@ -242,33 +242,52 @@ E1/E2 の目標値は原因特定後に確定する。
 
 ### 3.6 吹き出しタップでセッションの端末へ移動
 
-吹き出しをタップすると、そのセッションが動いている端末のタブへフォーカスを移す。
+吹き出しをタップすると、そのセッションが動いている端末へフォーカスを移す。
 
-**指す対象は集約規則の勝者**（3.2 と同じ優先度: `waiting` > `busy` > `idle`）。
-ペットの表示行・吹き出しの文言・タップ先の3つを同一のセッションに一致させる。
-「許可待ちがある → 吹き出しを押す → その端末に飛ぶ」が一直線になる。
+**指す対象**: 吹き出しは既存アーキテクチャ通り直近のhookイベントを表示（3.2の集約は
+スプライトの状態表示のみが対象、吹き出し本文は元からhook駆動でaggregationとは独立 —
+この非対称は本項目が新設したものではない）。表示中の文言・タップ先は常に同一の
+セッションに一致する。
 
-**実機で検証済みの経路**（macOS + iTerm2）:
+**2026-08-01、Windows + WSL 実機で実装・検証済み**（当初 macOS のみを対象としていた
+判断を撤回）。ユーザーの実端末構成（個別コンソールウィンドウ、Windows Terminal では
+ない）を確認した上で着手:
 
-```
-~/.claude/sessions/67322.json  →  pid=67322
-ps -o tty= -p 67322            →  ttys012
-iTerm2 の tty of session       →  /dev/ttys012 と一致 → その session を select
-```
+- **仕組み**: `hook_runner.run()`（`app/src/hook_runner.zig`）は Claude Code の hook
+  が起動した瞬間、自分自身がその**端末の子プロセスとして動いている**ことを利用し、
+  その場で自分の端末識別子を取得して `/bubble` の POST 本文に含める
+  （`terminal_hwnd`／`terminal_tty`）。セッションファイルの pid を介した相関は不要。
+  - **Windows**: `GetConsoleWindow()` で自プロセスが継承しているコンソール窓の
+    HWND を直接取得（`plat.currentConsoleWindowHandle`）。WSL 経由（`wsl.exe` 越しに
+    Windows バイナリの petdex-hook を実行）でも同じ呼び出しで有効な HWND が得られる
+    ことを実機確認済み — WSL 用の別経路は不要だった。
+  - **macOS/Linux**: `ttyname_r(0, ...)` で自分の制御端末パス（`plat.currentTty`）を
+    直接取得。旧設計の「セッションpid → `ps -o tty=`」より単純（pid相関が丸ごと不要）。
+- **タップ時**: `bubbleView` のルートノードに `on_press = .bubble_tapped` を追加
+  （吹き出し窓の `click_through` は撤去 — タップを受けるため）。`update` から
+  `fx.spawn` で処理:
+  - **Windows**: `<自身のexe> focus-window <hwnd>` を新規プロセスとして spawn し、
+    その中で `SetForegroundWindow` を呼ぶ（自プロセス内から他プロセスの窓へ
+    `SetForegroundWindow` してもフォアグラウンドロックの都合で確実に効かないため、
+    新規プロセスに一任）。
+  - **macOS**: `osascript` を spawn し、iTerm2 の `windows`/`tabs`/`sessions` を
+    tty で照合して `select`。
 
-iTerm2 は全ウィンドウ・全タブのセッションを `tty` 付きで AppleScript から列挙できる
-（実行して確認済み）。未検証は `select` 動詞のみ。
+**実機確認（Windows + WSL、2026-08-01）**: 個別コンソール窓・WSLをホストする
+コンソール窓の両方で、実際にフォーカスが正しい窓へ切り替わることを
+`GetForegroundWindow()` の実測で確認（自動化した合成テストで両経路とも成功）。
 
-**実装経路**: 吹き出しは独立ウィンドウ（`app/src/main.zig` の `syncBubbleWindow`、
-`bubbleView`）。ペット側が右クリック用に `on_press = .noop` を使っている前例があるので、
-`bubbleView` のルートノードに `on_press` を足して Msg を飛ばし、`update` から
-Effects チャネル経由で `osascript` を spawn する。Effects は fake executor で
-spawn をアサートできるため機械判定可能（ACCEPTANCE H）。
+**macOSは未検証**（開発機がWindowsのみのため）。コードはSPECの元の設計
+（iTerm2のwindows/tabs/sessionsをtty照合、`select`）をそのまま実装したもので、
+`select` 動詞の実際の動作は未確認のまま。
 
-**制約**: 端末エミュレータ依存。iTerm2 は検証済み、Terminal.app は同等の scripting を
-持つ見込み（未検証）。Ghostty / WezTerm / Alacritty / kitty は未調査。
-**対応していない端末では何もしない**（エラーにしない）。3.3 と異なり本項目は
-`app/` 側の機能なので macOS のみが対象（5.1）。
+**制約**: 端末エミュレータ依存。Windows は「個別コンソールウィンドウ」
+（cmd.exe/従来型PowerShell等）が対象 — Windows Terminal は単一プロセス内に
+全タブを持ち外部から特定タブを選択するAPIが無いため非対応（窓全体の前面化のみ
+可能だが本項目は未実装、必要になれば別途）。macOS は iTerm2 のみ対象、
+Terminal.app は同等のscriptingを持つ見込み（未検証）。Ghostty / WezTerm /
+Alacritty / kitty は未調査。**対応していない端末・hwnd/ttyが無いbubbleでは
+何もしない**（エラーにしない）。
 
 ### 3.7 状態連動ボイス（`app/` 側、Windows限定・策定中）
 
@@ -279,9 +298,10 @@ spawn をアサートできるため機械判定可能（ACCEPTANCE H）。
 `failed`）の遷移ごとに、`fx.playAudio` でボイスを鳴らす**。3.3 のような他マシンへのTTS
 問い合わせ（母艦・L3）は行わない — CPU/GPU/メモリに余裕があるこの Windows 機の
 ローカルTTS（`C:\Users\e8910\Documents\TTS\Irodori-TTS`、モデル: 棗いろは音声、
-リポジトリ外・個人環境固有）で事前生成した WAV を `app/assets/voice/<category>/` に
-配置し、アプリは生成済みファイルを再生するだけ。**対応OSはWindowsのみ**
-（ローカルTTSがこの機にしかないため。5.1 のペット本体対応OSとも独立した制約）。
+リポジトリ外・個人環境固有）で事前生成した WAV を **キャラ（ペット slug）ごとに**
+`app/assets/voice/<slug>/<category>/` に配置し、アプリは生成済みファイルを
+再生するだけ。**対応OSはWindowsのみ**（ローカルTTSがこの機にしかないため。
+5.1 のペット本体対応OSとも独立した制約）。
 
 - カテゴリごとに複数WAVを置け、遷移のたびに乱数で1つ選んで再生する
 - **クールダウン**（同カテゴリの連続再生を抑える最小間隔、秒）を持つ。デフォルト60秒、
@@ -289,8 +309,29 @@ spawn をアサートできるため機械判定可能（ACCEPTANCE H）。
   （呼び出し元 `applyState` の呼び出しガードが同一状態の連打を既に防いでいるため、
   無くても連呼しない。かつ確認待ちは毎回鳴らしたい）
 - 台詞は棗いろはの性格（生徒がプレイヤーを「先生」と呼ぶ・敬語）を踏まえたオリジナル文
-  （実在のゲーム台本の引用ではない）。**2026-07-31 時点ではドラフト**（7カテゴリ×2件、
-  人間のレビュー待ち）。差し替えは `app/assets/voice/<category>/` のWAVを入れ替えるだけ
+  （実在のゲーム台本の引用ではない）。**2026-08-01 に台詞ソースを
+  `app/assets/voice/<slug>/script.json` へ集約**（それまではWAVが唯一の記録で台詞
+  テキストはどこにも残っていなかった）。編集 → `python scripts/generate-voice.py
+  --pet <slug>` で `app/assets/voice/<slug>/<category>/<番号>.wav` に反映
+  （個人環境固有のローカルTTS、`C:\Users\e8910\Documents\TTS\Irodori-TTS` を使用、
+  このユーザー機専用）。実際に鳴るのは `waiting`/`jumping`/`failed` の3カテゴリの
+  み（`voiceCategoryForState`）— 他4カテゴリは将来の拡張用に用意してあるだけで
+  現状未使用。2026-08-01の実機フィードバックで `jumping`（ユーザーの指示直後＝
+  作業開始のタイミング）の旧文言が完了報告のトーン（「お疲れ様でした」等）で
+  矛盾していたため差し替え、`waiting`（クールダウン対象外で頻出）はバリエーション
+  を2→4件に増量
+- **キャラ別台本（2026-08-01 続き）**: ボイスを持つペットは `app/src/main.zig` の
+  `voiced_pet_slug`（現状 `"iroha"` のみ）で指定する1体固定 — 「全セッションを
+  1匹が代表する」という 3.2 の前提どおり、同時に複数キャラを鳴らす設計にはして
+  いない。他ペット選択中は無音（アセット欠落を無視するフォールバックと同じ扱い）。
+  別キャラにボイスを足す場合は `app/assets/voice/<slug>/script.json` を新規作成し
+  `voiced_pet_slug` を差し替える
+- **抑揚（絵文字マークアップ）**: このTTSは台詞に絵文字を含めないとほぼ棒読みに
+  なる。`voice/samples/daihon.md`（同 `emoji_sweep/` の実例つき）の作法どおり、
+  絵文字はその音・感情が実際に鳴る場所（擬音語・間投詞の直後）に埋め込む —
+  文頭に置くだけでは効かない。棗いろは用には専用LoRA
+  （`outputs/irodori_iroha_lora/checkpoint_best_val_loss_0001200_0.760441`、
+  `script.json` の `lora_adapter` フィールド）も利用可能
 - 口パク（3.4）とは未連動。口パクは別フィーチャ（mouth-compositing、D着手前ゲート）の
   仕事で、本項目は音声再生のみ
 
@@ -307,8 +348,12 @@ spawn をアサートできるため機械判定可能（ACCEPTANCE H）。
   一覧を出す必要が無い。「1匹で全体を代表」の静けさを保つ
 - **ローカルTTSランタイムの各環境への導入** — 3.3 の理由による。生成は母艦（L3）に寄せる
 - **iTerm2 以外の端末エミュレータへの対応保証** — 3.6 の制約。対応していない端末では何もしない
-- **Windows / Linux の端末フォーカス（3.6）** — Windows Terminal や Wayland では
-  ウィンドウフォーカスの外部制御が制限される。macOS + iTerm2 のみを保証対象とする
+- **Windows Terminal・Wayland の端末フォーカス（3.6）** — Windows Terminal は単一プロセス
+  内の全タブを外部から個別選択するAPIが無い（窓全体の前面化のみ可能、未実装）。
+  Waylandはコンポジタのセキュリティモデル上、外部プロセスからの任意ウィンドウ
+  フォーカスが一般に不可能。2026-08-01時点でWindows（個別コンソール窓）・WSL
+  ホスト窓は実装・実機検証済みに格上げ（3.6参照）、macOSはコード実装済みだが
+  実機未検証
 - **音素（viseme）ベースの口パク** — 3.4 の理由による
 - **Codex / Gemini CLI / opencode 向けの新機能** — 上流の既存対応は壊さないが、拡張もしない
 - **上流への PR** — v1 では行わない。3.1 と 3.5 は上流のバグ／改善なので将来の検討事項として
@@ -316,10 +361,10 @@ spawn をアサートできるため機械判定可能（ACCEPTANCE H）。
 - **コード署名 / 公証 / リリース配布** — 自分で使うことが目的。未署名配布時の
   Gatekeeper 問題（`docs/recipes/tauri-desktop-app.md` 6項）には踏み込まない
 - **Windows / Linux での無条件の動作保証** — 下記制約を参照。ただし spike の結果
-  （5.1）により、ビルド・透過・最前面は Windows で実機確認済み、ドラッグ（3.1）は
+  （5.1）により、ビルド・透過（per-pixel alpha、2026-08-01 実機確認済み。詳細
+  `app/PROVENANCE.md`）・最前面は Windows で実機確認済み、ドラッグ（3.1）は
   Windows・Linux(X11) を対象に自前実装する方針になった。Linux(Wayland) の
-  ドラッグと、Windows特有の透過合成の視覚的ノイズ（既知課題、app/PROVENANCE.md
-  参照）は対象外・未解決のまま残る
+  ドラッグは対象外・未解決のまま残る
 
 ## 5. 制約とリスク
 
@@ -377,9 +422,9 @@ SDK は3デスクトップとも実装している（macOS が最深、Windows �
 2. **未**: macOS での実機確認はまだ（上流CIは同じピンでmacOS/Linuxも通しているため
    通る可能性は高いが未検証）
 3. **済**: Windows実機で確認。`WS_EX_TOPMOST`/`WS_EX_LAYERED` が実際に設定され、
-   実デスクトップキャプチャで背景越しに他ウィンドウが透けることを確認。ただし
-   透過領域に視覚的ノイズが乗る既知課題あり（原因未特定、app/PROVENANCE.md）。
-   また、つまみドラッグ（3.1）が機能しないことが判明（3.1のスコープ拡張を参照）
+   実デスクトップキャプチャで背景越しに他ウィンドウが透けることを確認。per-pixel
+   alpha 透過（視覚的ノイズなし、UpdateLayeredWindow 経由）を2026-08-01に実機確認済み
+   （`app/PROVENANCE.md`）。つまみドラッグ（3.1）は機能する（3.1のスコープ拡張を参照）
 4. **未**: Linux実機確認はまだ
 
 #### OS別の既知のギャップ（1〜4が通った場合に効いてくる）

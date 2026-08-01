@@ -330,3 +330,50 @@ pub fn openExternal(target: []const u8) void {
     }) catch return;
     _ = child.wait(io) catch {};
 }
+
+extern "kernel32" fn GetConsoleWindow() callconv(.winapi) ?windows.HWND;
+extern "user32" fn SetForegroundWindow(hWnd: windows.HWND) callconv(.winapi) c_int;
+
+/// The console window hosting the CURRENT process, as an opaque handle
+/// value — called from `hook_runner.run()`, which inherits its
+/// console from whatever shell Claude Code's hook spawned it in (a
+/// normal child process shares its parent's console unless explicitly
+/// detached). 0 means "no console" (not run from a Windows console
+/// host, or a non-Windows platform) — the bubble-tap-focus feature is
+/// a silent no-op in that case, never an error.
+pub fn currentConsoleWindowHandle() u64 {
+    if (builtin.os.tag != .windows) return 0;
+    const hwnd = GetConsoleWindow() orelse return 0;
+    return @intFromPtr(hwnd);
+}
+
+/// Bring a window (captured earlier via `currentConsoleWindowHandle`)
+/// to the foreground. `handle_value` is an opaque `HWND` bit pattern,
+/// not a PID — the window may since have closed (stale handle), which
+/// `SetForegroundWindow` simply fails on quietly, matching every other
+/// helper in this file's "never error outward" contract.
+pub fn focusForeignWindow(handle_value: u64) void {
+    if (builtin.os.tag != .windows or handle_value == 0) return;
+    const hwnd: windows.HWND = @ptrFromInt(handle_value);
+    _ = SetForegroundWindow(hwnd);
+}
+
+extern "c" fn ttyname_r(fd: c_int, buf: [*]u8, buflen: usize) c_int;
+
+/// The controlling terminal device path (e.g. `/dev/ttys012` on
+/// macOS, `/dev/pts/3` on Linux) for this process's stdin — the
+/// macOS/Linux analogue of `currentConsoleWindowHandle`. `hook_runner`
+/// is a normal child of whatever shell invoked it, so it inherits the
+/// SAME controlling tty as the interactive session running Claude
+/// Code; capturing it now, while still running inside that shell, is
+/// what SPEC.md 3.6 verified end to end on macOS (`ps -o tty= -p
+/// <pid>` reading the same value another way — `ttyname_r` on our own
+/// fd 0 is the direct route and needs no PID lookup at all). Empty
+/// when stdin isn't a real tty or the platform has none of this
+/// (Windows: use `currentConsoleWindowHandle` instead).
+pub fn currentTty(buf: []u8) []const u8 {
+    if (builtin.os.tag == .windows) return "";
+    if (ttyname_r(0, buf.ptr, buf.len) != 0) return "";
+    const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
+    return buf[0..len];
+}

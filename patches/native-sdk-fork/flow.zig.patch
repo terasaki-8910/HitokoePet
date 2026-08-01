@@ -1,0 +1,10 @@
+--- C:\Users\e8910\AppData\Local\Temp\claude\C--Users-e8910-Documents-HitokoePet\8bf905b6-3cef-4a12-aad4-65c5cce348a0\scratchpad\pristine/src/runtime/flow.zig	2026-08-01 05:43:30.164817200 +0900
++++ tools/native-sdk-fork/src/runtime/flow.zig	2026-08-01 05:36:51.357366600 +0900
+@@ -688,6 +688,7 @@
+             self.windows[runtime_index].info.label = try copyInto(&self.windows[runtime_index].label_storage, shell_window.label);
+             self.windows[runtime_index].info.title = try copyInto(&self.windows[runtime_index].title_storage, shell_window.title orelse app_info.resolvedWindowTitle());
+             self.windows[runtime_index].info.frame = startup_frame;
++            self.windows[runtime_index].transparent = shell_window.transparent;
+             self.windows[runtime_index].source = if (source) |source_value| try WindowViewMethods().copySource(self, runtime_index, source_value) else null;
+             self.windows[runtime_index].source_reloads_from_app = source != null;
+             if (!self.windows[runtime_index].main_frame_set) {

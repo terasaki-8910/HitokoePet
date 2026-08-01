@@ -37,9 +37,19 @@ const win_h: f32 = frame_h * max_scale;
 const cols: u64 = 8;
 const sheet_image_id: u64 = 1;
 
+/// The bundled sans face (Geist) has no CJK glyphs — bubble titles carry
+/// the user's own prompt text verbatim (SPEC: artifacts default to
+/// Japanese), and Geist renders every Japanese character as a notdef
+/// block, which reads as a solid black bar for a whole line. Noto Sans
+/// JP (SIL OFL, see assets/fonts/OFL.txt) covers it; subset to Latin +
+/// kana + the CJK Unified Ideographs block to keep the embed a few MB
+/// instead of the full font's ~10MB.
+const jp_font_id: canvas.FontId = canvas.min_registered_font_id;
+const jp_font_bytes = @embedFile("assets/fonts/NotoSansJP-Subset.ttf");
+
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
 const shell_views = [_]native_sdk.ShellView{
-    .{ .label = canvas_label, .kind = .gpu_surface, .fill = true, .role = "Pet canvas", .accessibility_label = "Petdex pet", .gpu_backend = .metal, .gpu_pixel_format = .bgra8_unorm, .gpu_present_mode = .timer, .gpu_alpha_mode = .@"opaque", .gpu_color_space = .srgb, .gpu_vsync = true },
+    .{ .label = canvas_label, .kind = .gpu_surface, .fill = true, .role = "Pet canvas", .accessibility_label = "Petdex pet", .gpu_backend = .metal, .gpu_pixel_format = .bgra8_unorm, .gpu_present_mode = .timer, .gpu_alpha_mode = .premultiplied, .gpu_color_space = .srgb, .gpu_vsync = true },
 };
 const shell_windows = [_]native_sdk.ShellWindow{.{
     .label = "main",
@@ -134,6 +144,8 @@ pub const Msg = union(enum) {
     open_pet_page: u32,
     appearance: native_sdk.platform.Appearance,
     toggle_bubbles,
+    toggle_voice,
+    bubble_tapped,
     install_agent: u32,
     uninstall_agent: u32,
     pet_filter: canvas.TextInputEvent,
@@ -198,6 +210,9 @@ pub const Model = struct {
     voice_cooldown_s: f32 = 60,
     /// 0.0-1.0, applied before every voice bark. Persisted.
     voice_volume: f32 = 1.0,
+    /// Master on/off for voice barks, independent of volume (muting via
+    /// volume=0 would lose the user's chosen level). Persisted.
+    voice_enabled: bool = true,
     last_voice_ms: [voice_category_count]i64 = @splat(-1_000_000_000),
     voice_prng: std.Random.DefaultPrng = std.Random.DefaultPrng.init(0),
     active_pet: u32 = 0,
@@ -233,6 +248,7 @@ fn petdexTokens(model: *const Model) canvas.DesignTokens {
         .contrast = if (model.high_contrast) .high else .standard,
         .reduce_motion = model.reduce_motion,
     });
+    tokens.typography.font_id = jp_font_id;
     if (model.high_contrast) return tokens;
     const c = &tokens.colors;
     if (model.dark) {
@@ -366,6 +382,7 @@ pub const InstallState = struct {
 };
 
 const wsl_whoami_key: u64 = 23;
+const focus_window_key: u64 = 24;
 /// WSL distro to also poll for Claude Code sessions (`wsl --list`
 /// confirmed this one on the dev machine; adjust if the distro is
 /// renamed/reinstalled). The Linux username is resolved at boot via
@@ -932,7 +949,7 @@ fn saveSettings(model: *const Model) void {
     const path = settingsPath(&path_buf) orelse return;
     var buf: [384]u8 = undefined;
     const active = if (model.active_pet < catalog_len) catalog[model.active_pet].slice() else "";
-    const json = std.fmt.bufPrint(&buf, "{{\"active_pet\":\"{s}\",\"scale\":{d:.2},\"held_motion_threshold\":{d:.1},\"voice_cooldown_s\":{d:.1},\"voice_volume\":{d:.2},\"bubbles\":{},\"agents_prompted\":{}}}", .{ active, model.scale, model.held_motion_threshold, model.voice_cooldown_s, model.voice_volume, model.bubbles_enabled, model.agents_prompted }) catch return;
+    const json = std.fmt.bufPrint(&buf, "{{\"active_pet\":\"{s}\",\"scale\":{d:.2},\"held_motion_threshold\":{d:.1},\"voice_cooldown_s\":{d:.1},\"voice_volume\":{d:.2},\"voice_enabled\":{},\"bubbles\":{},\"agents_prompted\":{}}}", .{ active, model.scale, model.held_motion_threshold, model.voice_cooldown_s, model.voice_volume, model.voice_enabled, model.bubbles_enabled, model.agents_prompted }) catch return;
     cWriteFile(path, json);
 }
 
@@ -1032,6 +1049,7 @@ var initial_voice_cooldown_s: f32 = 60;
 var initial_voice_volume: f32 = 1.0;
 var initial_pet: u32 = 0;
 var initial_bubbles: bool = true;
+var initial_voice_enabled: bool = true;
 var initial_agents_prompted: bool = false;
 
 // ------------------------------------------------------------- avatars
@@ -1216,6 +1234,9 @@ fn resolveInitialPet(io: std.Io, allocator: std.mem.Allocator, environ_map: *std
             if (hook_server.jsonStringPub(json, "bubbles")) |_| {} else if (std.mem.indexOf(u8, json, "\"bubbles\":false") != null) {
                 initial_bubbles = false;
             }
+            if (std.mem.indexOf(u8, json, "\"voice_enabled\":false") != null) {
+                initial_voice_enabled = false;
+            }
             if (std.mem.indexOf(u8, json, "\"agents_prompted\":true") != null) {
                 initial_agents_prompted = true;
             }
@@ -1354,8 +1375,9 @@ fn registerSessionRootEx(path: []const u8, throttled: bool) void {
 // SPEC 3.3 拡張: Stop フック1本の done.wav から、ペットの9状態のうち
 // 意味のある7カテゴリ（running-left/-right は running に集約）へ拡張。
 // 台詞は draft（Irodori-TTS で生成、character voice: 棗いろは想定、
-// 「先生」呼び・敬語）。差し替えは app/assets/voice/<category>/ の
-// ファイルを入れ替えるだけでよい。
+// 「先生」呼び・敬語）。台本は app/assets/voice/<slug>/script.json、
+// 音声ファイルは app/assets/voice/<slug>/<category>/<番号>.wav
+// （scripts/generate-voice.py <slug> で script.json から再生成できる）。
 
 const VoiceCategory = enum(u8) { idle, running, waiting, review, jumping, waving, failed };
 const voice_category_count = @typeInfo(VoiceCategory).@"enum".fields.len;
@@ -1379,26 +1401,41 @@ fn voiceCategoryForState(state: State) ?VoiceCategory {
     };
 }
 
-const voice_lines = std.EnumArray(VoiceCategory, []const []const u8).init(.{
-    .idle = &.{ "assets/voice/idle/1.wav", "assets/voice/idle/2.wav" },
-    .running = &.{ "assets/voice/running/1.wav", "assets/voice/running/2.wav" },
-    .waiting = &.{ "assets/voice/waiting/1.wav", "assets/voice/waiting/2.wav" },
-    .review = &.{ "assets/voice/review/1.wav", "assets/voice/review/2.wav" },
-    .jumping = &.{ "assets/voice/jumping/1.wav", "assets/voice/jumping/2.wav" },
-    .waving = &.{ "assets/voice/waving/1.wav", "assets/voice/waving/2.wav" },
-    .failed = &.{ "assets/voice/failed/1.wav", "assets/voice/failed/2.wav" },
+/// キャラごとの台本 (script.json) が持つ行数。app/assets/voice/<slug>/
+/// の下の実ファイル数と一致させること — scripts/generate-voice.py が
+/// script.json から生成する際、この数と食い違うと存在しない番号を
+/// 再生しようとして無音になる（実害はないが直しておく）。
+const voice_line_counts = std.EnumArray(VoiceCategory, usize).init(.{
+    .idle = 2,
+    .running = 2,
+    .waiting = 4,
+    .review = 2,
+    .jumping = 2,
+    .waving = 2,
+    .failed = 3,
 });
+
+/// ボイス素材を持つペットの slug。台本と wav があるキャラだけが鳴く —
+/// 他のペット（例: summer）に切り替えている間は無音（missing-asset を
+/// silent no-op で握り潰す既存方針どおり）。新しいキャラにボイスを
+/// 足したら script.json を app/assets/voice/<slug>/ に作り、ここに
+/// slug を足す（台詞数が違うなら voice_line_counts もキャラ別にする）。
+const voiced_pet_slug = "iroha";
 
 const voice_audio_key: u64 = 1;
 
 /// Bark for a state transition, subject to the per-category cooldown
 /// (`waiting` is exempt — see the field doc on `Model.last_voice_ms`).
 /// Silent no-op on any problem (no lines for the category, cooldown
-/// still open): a missed bark is never worth interrupting the pet over.
+/// still open, active pet has no voice assets): a missed bark is never
+/// worth interrupting the pet over.
 fn maybeVoiceBark(model: *Model, state: State, fx: *Effects) void {
+    if (!model.voice_enabled) return;
     const category = voiceCategoryForState(state) orelse return;
-    const lines = voice_lines.get(category);
-    if (lines.len == 0) return;
+    const active_slug = if (model.active_pet < catalog_len) catalog[model.active_pet].slice() else "";
+    if (!std.mem.eql(u8, active_slug, voiced_pet_slug)) return;
+    const count = voice_line_counts.get(category);
+    if (count == 0) return;
     const now = fx.wallMs();
     const index = @intFromEnum(category);
     if (category != .waiting) {
@@ -1406,9 +1443,11 @@ fn maybeVoiceBark(model: *Model, state: State, fx: *Effects) void {
         if (now - model.last_voice_ms[index] < cooldown_ms) return;
     }
     model.last_voice_ms[index] = now;
-    const pick = model.voice_prng.random().intRangeLessThan(usize, 0, lines.len);
+    const pick = model.voice_prng.random().intRangeLessThan(usize, 1, count + 1);
+    var path_buf: [128]u8 = undefined;
+    const path = std.fmt.bufPrint(&path_buf, "assets/voice/{s}/{s}/{d}.wav", .{ voiced_pet_slug, @tagName(category), pick }) catch return;
     fx.setAudioVolume(model.voice_volume);
-    fx.playAudio(.{ .key = voice_audio_key, .path = lines[pick] });
+    fx.playAudio(.{ .key = voice_audio_key, .path = path });
 }
 
 fn applyState(model: *Model, state: State, duration_ms: u32, fx: *Effects) void {
@@ -1461,6 +1500,7 @@ pub fn boot(model: *Model, fx: *Effects) void {
     model.voice_cooldown_s = initial_voice_cooldown_s;
     model.voice_volume = initial_voice_volume;
     model.bubbles_enabled = initial_bubbles;
+    model.voice_enabled = initial_voice_enabled;
     model.agents_prompted = initial_agents_prompted;
     if (env_home) |home| model.agents = agent_hooks.scan(boot_allocator, home);
 
@@ -1694,6 +1734,13 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .toggle_bubbles => {
             model.bubbles_enabled = !model.bubbles_enabled;
             saveSettings(model);
+        },
+        .toggle_voice => {
+            model.voice_enabled = !model.voice_enabled;
+            saveSettings(model);
+        },
+        .bubble_tapped => {
+            focusBubbleTerminal(model, fx);
         },
         .set_scale => |fraction| {
             model.scale = 0.4 + fraction * 0.8;
@@ -1997,6 +2044,12 @@ const bubble_chars_per_line: usize = 26;
 const bubble_max_lines: usize = 2;
 const bubble_display_chars: usize = bubble_chars_per_line * bubble_max_lines;
 const bubble_card_pad: f32 = 12;
+/// Clearance between the tail tip (the window's bottom edge, since the
+/// card+tail column is bottom-anchored) and the pet window's top edge.
+/// The pet window is fitted tight to the sprite (`fitWindow`), so
+/// `pet_y` IS the visible sprite's top — a couple px here let the tail
+/// visibly overlap the character it points at.
+const bubble_gap: f32 = 12;
 
 /// Count display characters (UTF-8 sequences, not bytes).
 fn charCount(text: []const u8) usize {
@@ -2071,6 +2124,67 @@ fn bubbleActive(model: *const Model) bool {
     return model.bubbles_enabled and model.bubble.text_len > 0;
 }
 
+/// Bubble-tap-focus (SPEC 3.6): jump to the terminal running the
+/// session the current bubble represents. `hook_runner.run` captured
+/// the session's terminal identity at post-time — Windows: console
+/// HWND (`Bubble.terminal_hwnd`); macOS/Linux: controlling tty
+/// (`Bubble.terminal_tty`). A no-op wherever neither is set
+/// (unsupported platform, or no hook has posted a bubble carrying one
+/// yet — e.g. a bubble from a manual test invocation).
+///
+/// Windows realized (real-machine verified 2026-08-01): a fresh
+/// `<self> focus-window <hwnd>` process calling `SetForegroundWindow`
+/// — spawned rather than called in-process because Windows' foreground
+/// -lock rules favor the CALLING process's own recent input state, and
+/// a fresh process gets its own shot at the switch. Also keeps the
+/// WinAPI call off the main thread's hot path.
+///
+/// macOS: per SPEC 3.6's already-verified enumerate-by-tty mechanism
+/// (`ps -o tty=` reading the same value `currentTty` gets directly),
+/// spawns `osascript` against iTerm2's scripting dictionary. This half
+/// is UNTESTED — no macOS machine in this dev environment — written
+/// to the documented, partially-verified design; the `select` verb
+/// itself was the one unconfirmed piece per SPEC.
+fn focusBubbleTerminal(model: *const Model, fx: *Effects) void {
+    if (builtin.os.tag == .windows) {
+        if (model.bubble.terminal_hwnd == 0) return;
+        var self_buf: [1024]u8 = undefined;
+        const self_path = plat.executablePath(&self_buf) orelse return;
+        var hwnd_buf: [24]u8 = undefined;
+        const hwnd_str = std.fmt.bufPrint(&hwnd_buf, "{d}", .{model.bubble.terminal_hwnd}) catch return;
+        fx.spawn(.{
+            .key = focus_window_key,
+            .argv = &.{ self_path, "focus-window", hwnd_str },
+        });
+        return;
+    }
+    if (builtin.os.tag == .macos) {
+        if (model.bubble.terminal_tty_len == 0) return;
+        const tty = model.bubble.terminal_tty[0..model.bubble.terminal_tty_len];
+        var script_buf: [1024]u8 = undefined;
+        const script = std.fmt.bufPrint(&script_buf,
+            \\tell application "iTerm2"
+            \\  repeat with w in windows
+            \\    repeat with t in tabs of w
+            \\      repeat with s in sessions of t
+            \\        if tty of s is "{s}" then
+            \\          tell w to select
+            \\          tell t to select
+            \\          tell s to select
+            \\          return
+            \\        end if
+            \\      end repeat
+            \\    end repeat
+            \\  end repeat
+            \\end tell
+        , .{tty}) catch return;
+        fx.spawn(.{
+            .key = focus_window_key,
+            .argv = &.{ "osascript", "-e", script },
+        });
+    }
+}
+
 /// The window tracks exactly what is drawn: the sprite, plus a band
 /// above it while a bubble is showing (kept at least bubble-wide so
 /// the text can wrap like the old 190px-capped tooltip).
@@ -2086,7 +2200,7 @@ fn syncBubbleWindow(model: *const Model, fx: *Effects) void {
     const cur = fx.moveWindow("bubble", 0, 0, false) orelse return;
     const pet_w = frame_w * model.scale;
     const want_x = model.pet_x + pet_w / 2.0 - bubble_window_w / 2.0;
-    const want_y = model.pet_y - bubble_window_h + 2.0;
+    const want_y = model.pet_y - bubble_window_h - bubble_gap;
     const dx = want_x - cur.x;
     const dy = want_y - cur.y;
     if (@abs(dx) > 0.5 or @abs(dy) > 0.5) {
@@ -2107,7 +2221,18 @@ pub fn rootView(ui: *AppUi, model: *const Model) AppUi.Node {
         .semantics = .{ .label = "Petdex pet" },
     });
     node.widget.image_fit = .stretch;
-    node.widget.image_sampling = .nearest;
+    // .nearest keeps pixel-art edges crisp when the sprite is at or above
+    // native size, but at the default/most-used scale (0.7, range is
+    // 0.4-1.2) it point-samples a DOWNSCALE — nearest-neighbor minification
+    // aliases each source alpha-edge pixel independently instead of
+    // averaging them, which reads as speckled noise right on the
+    // silhouette (confirmed 2026-08-01: reproduced offline by downscaling
+    // the same fixed spritesheet frame 192x208->134x146 with nearest vs.
+    // linear/box — nearest alone reproduces the noise, linear/box does
+    // not). `.linear` below 1.0 fixes the common case; at/above native
+    // size there is no minification to alias, so nearest still wins for
+    // crispness.
+    node.widget.image_sampling = if (model.scale < 1.0) .linear else .nearest;
     // Bottom-center anchored: a smaller pet still stands on the same
     // ground line instead of floating at the window's top-left. The
     // context menu rides the root container: the image widget is
@@ -2190,7 +2315,7 @@ fn bubbleView(ui: *AppUi, model: *const Model) AppUi.Node {
     // the tail rides up over the card's bottom hairline, hiding the
     // border segment behind it so bubble and arrow read as one shape.
     tail.widget.transform = canvas.Affine.translate(0, -1.5);
-    return ui.column(.{ .grow = 1, .main = .end, .cross = .center }, .{ card, tail });
+    return ui.column(.{ .grow = 1, .main = .end, .cross = .center, .on_press = .bubble_tapped }, .{ card, tail });
 }
 
 // --------------------------------------------------------- settings window
@@ -2208,12 +2333,11 @@ fn petdexWindows(model: *const Model, scratch: *PetdexApp.WindowsScratch) []cons
             .width = bubble_window_w,
             .height = bubble_window_h,
             .x = @floatCast(model.pet_x + (frame_w * model.scale) / 2.0 - bubble_window_w / 2.0),
-            .y = @floatCast(model.pet_y - bubble_window_h + 2.0),
+            .y = @floatCast(model.pet_y - bubble_window_h - bubble_gap),
             .resizable = false,
             .titlebar = .chromeless,
             .floating = true,
             .transparent = true,
-            .click_through = true,
         };
         count += 1;
     }
@@ -2389,7 +2513,10 @@ fn settingsView(ui: *AppUi, model: *const Model) AppUi.Node {
             @as(f32, @floatFromInt(thumb_h)),
         );
         thumb.widget.image_fit = .contain;
-        thumb.widget.image_sampling = .nearest;
+        // Always a downscale (fixed 40x44 thumbnail) — same nearest-neighbor
+        // minification aliasing as the main pet image below 1.0 scale, so
+        // always .linear here (see rootView's comment for the full story).
+        thumb.widget.image_sampling = .linear;
         rows[shown] = ui.el(.list_item, .{
             .height = 56,
             .padding = 8,
@@ -2463,6 +2590,19 @@ fn settingsView(ui: *AppUi, model: *const Model) AppUi.Node {
                     ui.text(.{ .size = .sm, .style_tokens = .{ .foreground = .text_muted } }, "Lower = keeps running while held even when barely moving. 0 = always"),
                 }),
                 ui.el(.slider, .{ .width = 150, .value = held_motion_fraction, .on_value = AppUi.valueMsg(.set_held_motion_threshold), .semantics = .{ .label = "Held motion sensitivity" } }, .{}),
+            }),
+        }),
+        ui.el(.panel, .{ .style_tokens = .{ .background = .surface, .radius = .md } }, .{
+            ui.row(.{ .padding = 12, .cross = .center, .gap = 12 }, .{
+                ui.column(.{ .grow = 1 }, .{
+                    ui.text(.{}, "Voice"),
+                    ui.text(.{ .size = .sm, .style_tokens = .{ .foreground = .text_muted } }, "Bark on state changes and notifications"),
+                }),
+                ui.el(.switch_control, .{
+                    .selected = model.voice_enabled,
+                    .on_toggle = .toggle_voice,
+                    .semantics = .{ .label = "Voice" },
+                }, .{}),
             }),
         }),
         ui.el(.panel, .{ .style_tokens = .{ .background = .surface, .radius = .md } }, .{
@@ -2574,6 +2714,16 @@ pub fn main(init: std.process.Init) !void {
             hook_runner.run(phase, agent, env_home orelse return);
             return;
         }
+        if (std.mem.eql(u8, cmd, "focus-window")) {
+            // Bubble-tap-focus (SPEC 3.6): a short-lived helper
+            // invocation, not the GUI app — `update`'s .bubble_tapped
+            // spawns exactly this so the WinAPI foreground-switch call
+            // runs from a process the OS is willing to hand focus to.
+            const hwnd_str = args_it.next() orelse return;
+            const hwnd_value = std.fmt.parseInt(u64, hwnd_str, 10) catch return;
+            plat.focusForeignWindow(hwnd_value);
+            return;
+        }
     }
     if (argv0) |a0| refreshHookSymlink(a0);
     env_wanted_pet = init.environ_map.get("PETDEX_PET");
@@ -2596,6 +2746,7 @@ pub fn main(init: std.process.Init) !void {
         .window_view = petdexWindowView,
         .tokens_fn = petdexTokens,
         .on_appearance = onAppearance,
+        .fonts = &.{.{ .id = jp_font_id, .name = "NotoSansJP-Subset.ttf", .ttf = jp_font_bytes }},
     });
     defer app_state.destroy();
     app_state.model = .{};

@@ -85,12 +85,24 @@ pub fn run(phase: []const u8, arg_agent: ?[]const u8, home: []const u8) void {
     const busy = isPromptPhase(phase) or std.mem.eql(u8, phase, "pre") or std.mem.eql(u8, phase, "post");
     const state = stateForEvent(phase, jsonString(payload, "tool_name"));
 
+    // Bubble-tap-focus (SPEC 3.6): this hook process is a normal child
+    // of whatever shell Claude Code invoked it from, so it shares that
+    // shell's terminal identity — capturing it NOW (while still
+    // running inside it) is the only chance to learn where to jump
+    // back to later, when the user taps the bubble. Windows: the
+    // console HWND. macOS/Linux: the controlling tty path (matches
+    // what SPEC.md verified via `ps -o tty=`, direct route via our own
+    // fd 0). Whichever doesn't apply comes back empty/0 — never both.
+    const terminal_hwnd = plat.currentConsoleWindowHandle();
+    var tty_buf: [64]u8 = undefined;
+    const terminal_tty = plat.currentTty(&tty_buf);
+
     var body_buf: [1024]u8 = undefined;
     if (text.len > 0) {
         const body = if (title.len > 0)
-            std.fmt.bufPrint(&body_buf, "{{\"text\":\"{s}\",\"title\":\"{s}\",\"busy\":{},\"agent_source\":\"{s}\"}}", .{ text, title, busy, agent }) catch null
+            std.fmt.bufPrint(&body_buf, "{{\"text\":\"{s}\",\"title\":\"{s}\",\"busy\":{},\"agent_source\":\"{s}\",\"terminal_hwnd\":{d},\"terminal_tty\":\"{s}\"}}", .{ text, title, busy, agent, terminal_hwnd, terminal_tty }) catch null
         else
-            std.fmt.bufPrint(&body_buf, "{{\"text\":\"{s}\",\"busy\":{},\"agent_source\":\"{s}\"}}", .{ text, busy, agent }) catch null;
+            std.fmt.bufPrint(&body_buf, "{{\"text\":\"{s}\",\"busy\":{},\"agent_source\":\"{s}\",\"terminal_hwnd\":{d},\"terminal_tty\":\"{s}\"}}", .{ text, busy, agent, terminal_hwnd, terminal_tty }) catch null;
         if (body) |b| postLocalhost("/bubble", b, token);
     }
     if (state) |s| {

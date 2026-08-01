@@ -140,7 +140,7 @@ SPEC 5.1 参照。`app/` に SDK バージョンの固定が無く、`transparen
 | # | 基準 | 判定 | 状態（2026-07-29） |
 | --- | --- | --- | --- |
 | S1 | `native build app` が現行の `@native-sdk/cli` で成功する | 終了コード | **済**（npm版では失敗。`Railly/native@65d4885` 固定ビルドで成功。`app/PROVENANCE.md`） |
-| S2 | 起動したウィンドウが実際に透過している（背景が抜けている） | `native automate screenshot` のアルファ検査 | **未**（macOS実機未確認。Windowsでは実デスクトップキャプチャで確認済みだが、透過領域に既知のノイズ課題あり） |
+| S2 | 起動したウィンドウが実際に透過している（背景が抜けている） | `native automate screenshot` のアルファ検査 | Windows: **済**（2026-08-01、`UpdateLayeredWindow` 経由の per-pixel alpha 実装。`Graphics.CopyFromScreen` による実デスクトップキャプチャでノイズなく背景が透けることを確認、`app/PROVENANCE.md`）。macOS: **未**（実機未確認） |
 | S3 | ウィンドウが最前面に留まる | `native automate snapshot` | **済**（Windows実機で `WS_EX_TOPMOST` 確認） |
 | S4 | S1-S3 が通らない場合、通るSDKバージョンを特定し `app/` に固定する手段が存在する | バージョン固定後に S1-S3 を再実行 | **済**（上記の通り） |
 | S5 | アイドル時CPUの原因が特定され、`docs/prior-art.md` に記録されている | ファイル内容レビュー | **一部進捗**（矛盾は解消。旧断定を撤回し、Windows実機で `gpu_present_path=pixels`＝パッチ差分最適化が効かないCPUフォールバック経路であることを確認。macOS側で `gpu_present_path` が `packet`/`pixels` のどちらかを確認するまでは、22.7%baselineの原因を確定できない。`docs/prior-art.md` 5.1参照） |
