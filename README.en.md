@@ -1,143 +1,163 @@
 <div align="right">
 
-[![日本語](https://img.shields.io/badge/lang-%E6%97%A5%E6%9C%AC%E8%AA%9E-bc002d?style=flat-square)](./README.md)
+[日本語](./README.md)
 
 </div>
 
 # HitokoePet
 
-A desktop pet that reacts to Claude Code session state. One pet represents every session, announces task completion with its voice, and lip-syncs (compatible with the Codex pet atlas spec).
+One desktop pet stands in for every Claude Code session and tells you, with a speech bubble and a voice, when a session is waiting on you or has reached a stopping point.
+Compatible with the Codex pet atlas format.
 
-This project consists of **two deliverables with different supported environments**. Do not conflate them.
+<p align="center">
+  <img src="docs/images/hero.png" width="380" alt="A speech bubble reading 'Waiting for you…' above the pet">
+</p>
+<p align="center"><sub>The bubble is a real render from the app (<code>native automate screenshot</code>). The pet is the waiting row of the same atlas, placed exactly where the app places it.</sub></p>
 
-| Deliverable | What it is | Supported environments |
+Running Claude Code in several projects at once makes it easy to miss which session is blocked on a permission prompt.
+Instead of one notification per session, HitokoePet folds everything into a single pet: if any session is waiting, the pet looks like it is waiting,
+and tapping the bubble brings that session's terminal to the front.
+
+`app/` is a subtree import of [petdex](https://github.com/crafter-station/petdex)'s `packages/petdex-desktop-native` (MIT, Zig + Native SDK),
+with the missing pieces added on top. The blue components in the diagrams and the change table in `app/PROVENANCE.md` show exactly what was added.
+
+## Features and verification status
+
+| Feature | What it does | Status |
 | --- | --- | --- |
-| `app/` | The pet itself (drag / multi-session aggregation / lip-sync / idle-CPU reduction / bubble tap) | Decided by the spike. Currently verified on real Windows hardware for build, always-on-top, and transparency (with a known noise artifact in the transparent region). macOS / Linux unverified |
-| `voice/` | Voice-notification hook (speaks on completion via the Stop hook) | macOS / Ubuntu / NixOS / Windows |
+| Multi-session aggregation | Reads `~/.claude/sessions/*.json` every 100 ms and folds them into one state by priority `waiting > busy > idle`. WSL sessions are scanned too | Verified on Windows + WSL (4 sessions detected at once: 1 native + 3 WSL). 8 concurrent sessions not measured |
+| Tap the bubble to jump to the terminal | The hook captures its own terminal id (HWND / tty) the moment it starts and attaches it to the bubble; tapping focuses that terminal | Verified with standalone console windows and WSL host windows on Windows. macOS (iTerm2) is code only |
+| Grab and throw | Grab the character itself; the held pose stays while the button is down, then throw physics on release | Verified on Windows. macOS is upstream code. Window moving on Linux (X11) not implemented |
+| Transparency | Per-pixel alpha via `UpdateLayeredWindow` (a patch to the SDK fork) | Verified on Windows |
+| State-linked voice | Speaks only at the moments that need you: waiting, right after a prompt, failure. 60 s per-category cooldown, volume and on/off in Settings | Verified on Windows (WAVs pre-generated with a local TTS on the Windows machine) |
+| Tray | Lives in the notification area instead of the taskbar | Verified on Windows |
+| `voice/` completion hook | Speaks on the `Stop` hook and picks the available player per OS (macOS / Ubuntu / NixOS / Windows) | `voice/test.sh`: 14 pass, 1 skipped (no shellcheck). WAVs not bundled, not registered in `settings.json` yet |
+| 3-OS builds | GitHub Actions builds portable macOS (.app) / Windows / Linux packages | Latest manual run (`43aa72a`) succeeded |
+| Lip sync | Mouth shape chosen from a precomputed loudness envelope | **Not implemented.** Pure functions and tests only; not composited into rendering |
+| Idle CPU | Physics timer only runs while dragging; WSL scan throttled to every 2 s | **No reduction confirmed** (see Measurements) |
 
-`app/` is a subtree import of upstream [petdex](https://github.com/crafter-station/petdex)'s `packages/petdex-desktop-native` (MIT, see `app/PROVENANCE.md`), plus this project's own features.
+## Screenshots
 
-## Requirements
+<table>
+  <tr>
+    <td valign="top" width="50%">
+      <img src="docs/images/bubbles.png" alt="Three bubbles: working, waiting, done"><br>
+      <sub>Bubbles: working (tool description), waiting, and the final message on completion. The first line is the session's first prompt.</sub>
+    </td>
+    <td valign="top" width="50%">
+      <img src="docs/images/settings.png" alt="Settings window"><br>
+      <sub>Lower half of Settings. Held-motion sensitivity, voice on/off, cooldown and volume were added by HitokoePet.</sub>
+    </td>
+  </tr>
+</table>
 
-- **Native SDK (`@native-sdk/cli`)** — required to build and test the pet.
-  The **published npm versions (0.4.0–0.6.1) do not work**: they reject `app/app.zon`'s
-  `.floating` / `.transparent` as an unexpected field and `native build` fails.
-  You need a CLI built yourself from `Railly/native@feat/floating-window-0.5.3`
-  (commit `65d4885`); the pin is recorded in `app/PROVENANCE.md`. The SDK is pre-1.0
-  and expected to introduce breaking changes.
-- **An audio-playback command** — `voice/` auto-detects and uses one of `afplay` /
-  `pw-play` / `paplay` / `ffplay` / `powershell.exe` / `aplay`. On a machine with none
-  of them (headless), it stays silent and does nothing.
-- **Codex pet atlas assets** — place the spritesheet and `pet.json` below under
-  `~/.codex/pets/<id>/`.
-- **(optional) `shellcheck`** — used to lint the `voice/` shell scripts.
+<img src="pixelart/iroha.gif" width="200" align="right" alt="Pixel-art animation of the pet">
 
-### Spritesheet spec (inherited from upstream, read unmodified)
+The character is an 11-frame GIF animated in Aseprite, assigned to the rows of a Codex-compatible atlas (8 columns x 9 rows, 192x208 px cells).
+The atlas format is untouched, so any pet made for Codex loads as is.
 
-- 8 columns × 9 rows, 192×208px cells, 1536×1872px overall, transparent PNG/WebP
-- Rows = states, columns = frames. Leftover cells are fully transparent
-- Row order: `idle`(6) / `running-right`(8) / `running-left`(8) / `waving`(4) /
-  `jumping`(5) / `failed`(8) / `waiting`(6) / `running`(6) / `review`(6)
-- Layout: `pet.json` + `spritesheet.webp` under `~/.codex/pets/<id>/`
+<br clear="right">
 
-## Setup
+## Architecture
 
-1. **Build the pet** (using the pinned CLI):
+<img src="docs/images/architecture.svg" alt="Architecture diagram (labels in Japanese)">
 
-   ```sh
-   native build app
-   ```
+State arrives on two paths.
 
-   This yields the persistent desktop pet. Run `native doctor` to diagnose the
-   environment first if the build does not go through.
+- **Hooks** (upstream): Claude Code hooks launch `petdex-hook`, which POSTs state and bubble text to the HTTP server inside the pet.
+  It carries tool names and descriptions, but every session writes to the same pet, so the last writer wins.
+- **Session registry aggregation** (added): read every `~/.claude/sessions/<pid>.json` that Claude Code itself writes and fold them by priority.
+  None of the three prior implementations (clawdex / claude-code-pet / petdex) read this file or handled multiple sessions (`docs/prior-art.md`).
+  It is an internal file, not a public API, so unreadable files are skipped and the result falls back to idle; the hook path keeps working.
 
-2. **Register the voice hook with Claude Code** — add the `voice/` script to
-   `~/.claude/settings.json` under `hooks.Stop[].hooks[]`. It fires **only on the `Stop`
-   hook** (`SubagentStop` is out of scope).
+When `petdex-hook` starts as a hook it is a child of the terminal running that session, so it reads the terminal id directly
+(`GetConsoleWindow()` on Windows, `ttyname` on macOS / Linux). No pid-to-terminal lookup is needed, and the same call works from WSL.
 
-   > Do not reuse a Codex-oriented script. Claude Code's Stop payload has no `.type`
-   > field, so `jq -r '.type'` returns `null`. The failure mode is that it looks
-   > installed and working while never playing a sound (see SPEC 3.3.1).
+## State flow
 
-3. **(optional) Enable lip-sync** — place a mouth layer `mouth.png` next to the pet.
-   A pet without one works normally with no lip-sync (never an error). The amplitude is
-   read from an RMS envelope pre-computed next to the WAV (`done.wav` + `done.rms`).
+<img src="docs/images/flow.svg" alt="State decision flow (labels in Japanese)">
 
-4. **(optional) Configure the home-server TTS (L3)** — only on a cache miss, query the
-   home server's TTS over Tailscale. If the home server is down, fall back to the L1
-   generic WAV.
+## Voice
 
-## Usage / behavior
+<img src="docs/images/voice.svg" alt="Voice pipeline (labels in Japanese)">
 
-- **One pet represents everything.** It reads `~/.claude/sessions/<pid>.json` and folds
-  all sessions into a single display state by priority `waiting` > `busy` > `idle`. More
-  sessions never add more pets. If schema validation fails, this feature is disabled and
-  the pet keeps working via the existing hook path (graceful degradation).
-- **Drag.** While the mouse button stays down, a single drag state is held regardless of
-  velocity (motion never stops even when you move slowly or grab and hold still). On
-  release, throw physics kicks in and the pet returns to `waving` after decelerating.
-  Window follow works on macOS (already implemented) plus Windows (`SetWindowPos`) and
-  Linux X11 (`XMoveWindow`); on Linux Wayland it does nothing.
-- **Completion voice.** The `Stop` hook plays an utterance. Tiered design:
+- **State-linked voice** (in the pet): edit `app/assets/voice/<slug>/script.json` and run `python scripts/generate-voice.py --pet <slug>`.
+  The TTS (Irodori-TTS with a character LoRA) lives only on the Windows machine with a GPU; the pet just plays the pre-generated WAVs.
+  This TTS reads lines flat unless they contain emoji, so the script embeds emoji right after interjections and sound words (`voice/samples/daihon.md`).
+- **`voice/` completion hook**: a standalone shell script that can ship to machines without the pet (headless boxes, for example).
+  A script written for Codex never fires here, because Claude Code's Stop payload has no `.type`; this one checks `hook_event_name` only.
 
-  | Tier | Content | Runs on |
-  | --- | --- | --- |
-  | L1 | Fixed WAV per event kind | Each machine |
-  | L2 | Cache keyed by the phrase hash (`~/.cache/hitokoe/<sha1>.wav`) | Each machine |
-  | L3 | On cache miss only, the home server's TTS over Tailscale | Home server |
+## Stack and CI
 
-  To keep notifications from overlapping when several projects run at once, playback is
-  serialized with an atomic `mkdir` lock. If the lock wait exceeds a limit, it gives up
-  and exits 0 (so hook invocations do not pile up).
-- **Lip-sync.** It reads the `done.rms` envelope and deterministically picks a mouth
-  shape (closed / half / open). It never observes the playing audio and touches no audio
-  device or recording API; the same WAV always produces the same mouth motion.
-- **Bubble tap.** Tapping the speech bubble moves focus to the terminal tab where the
-  aggregation winner (the session whose state is currently shown) is running, so
-  "there's a permission prompt → tap the bubble → jump to that terminal" is a straight
-  line. Verified on macOS + iTerm2. On an unsupported terminal it does nothing.
+<img src="docs/images/stack.svg" alt="Tech stack and CI (labels in Japanese)">
 
-## Constraints
+Native SDK is pre-1.0, and the npm releases (0.4.0 to 0.6.1) reject `.floating` / `.transparent` in `app.zon`.
+Like upstream, this repo pins `Railly/native@feat/floating-window-0.5.3` (`65d4885`) and keeps its Windows changes as 11 patches in `patches/native-sdk-fork/`.
+CI clones the pinned commit, applies the patches, builds the CLI and then the app every time, so the fork never has to live in the repo.
 
-- **The Native SDK is pre-1.0.** A pinned, self-built CLI is required (see Requirements).
-- **`app/`'s supported environments are the spike's output**, not an unconditional
-  guarantee. The transparent window is verified on real Windows hardware but has a known
-  noise artifact in the transparent region; macOS / Linux are unverified.
-- **A system tray** exists on macOS / Windows but not Linux. `close_policy = "hide"`
-  requires the `tray` capability on Windows and is rejected at build time on Linux.
-- **Terminal focus (bubble tap) is guaranteed only on macOS + iTerm2.** Ghostty /
-  WezTerm / Alacritty / kitty are uninvestigated.
-- **Dependence on an internal path.** `~/.claude/sessions/` is a non-public internal
-  path, so if its schema changes the aggregation feature is disabled and the pet keeps
-  running.
+## How it was built
 
-## Out of scope (explicitly not built)
+<img src="docs/images/process.svg" alt="Development process (labels in Japanese)">
 
-- Microphone input / STT / prompt injection into Claude Code
-- Reading out Claude's response bodies
-- One pet per session (N pets) / a session-list panel
-- Installing a local TTS runtime on each machine (generation is pushed to the L3 home server)
-- Guaranteed support for terminal emulators other than iTerm2
-- Terminal focus on Windows / Linux
-- Viseme-based lip-sync
-- New features for Codex / Gemini CLI / opencode (upstream support is not broken, but not extended)
-- A PR to upstream (not in v1)
-- Code signing / notarization / release distribution
-- Unconditional operation on Windows / Linux (Wayland drag and the Windows transparency noise remain unresolved)
+Built with Claude Code, through a gated pipeline (`pipeline.yaml`, `scripts/run.sh`): humans decide only at the judgment points (spec, acceptance criteria, acceptance), and tests plus lint stop everything else.
+`ACCEPTANCE.md` states every criterion as a machine-checkable pass/fail. `main.zig` had zero tests, so state selection, aggregation, mouth shape and terminal focus were pulled out into pure functions and tested.
 
-## Developed via the gated pipeline
+## Measurements: idle CPU
 
-This project is built stage by stage through a gated pipeline. This README is itself an
-artifact generated from SPEC.md, never hand-authored.
+| Condition | CPU (share of one core) | RSS |
+| --- | --- | --- |
+| Upstream v0.3.1, macOS, 91 s (2026-07-28) | 22.7% | 111 MB |
+| This repo, Windows, 45 s x 2 (2026-10-11) | 17.4% / 16.3% | 55 MB |
+| Upstream at import time, same Windows machine and SDK fork, 45 s x 2 (2026-10-11) | 8.1% / 16.4% | 41-47 MB |
+
+On the same machine, no reduction is confirmed. Upstream varied a lot between runs, and the runs happened in Claude Code's own session rather than an interactive desktop,
+so the conclusion is "cannot claim a reduction", not the size of the gap. Windows / Linux go through the SDK's software present path (`gpu_present_path=pixels`),
+where the incremental-present optimization does not apply (`docs/prior-art.md` 5.1). Root cause and target values (`ACCEPTANCE.md` E1-E3) are still open.
+
+## Build and run
+
+Requires Zig 0.16.
 
 ```sh
-sh scripts/run.sh from <stage>      # advance from a given stage
-INTERACTIVE=1 sh scripts/run.sh from <stage>   # run in the TUI instead of headless
+# 1. Prepare the pinned Native SDK fork and apply the patches (same steps as CI)
+git clone --branch feat/floating-window-0.5.3 https://github.com/Railly/native.git tools/native-sdk-fork
+git -C tools/native-sdk-fork checkout 65d4885cb5f76a5d1f33cace56b93a898f7b2cb3
+for p in patches/native-sdk-fork/*.patch; do patch -p0 < "$p"; done
+(cd tools/native-sdk-fork && zig build cli)
+export PATH="$PWD/tools/native-sdk-fork/zig-out/bin:$PATH"
+
+# 2. Build and test
+native build app
+native test app
 ```
 
-- Stage (gate) definitions live in `pipeline.yaml`.
-- Pass/fail criteria live in `ACCEPTANCE.md`.
-- Tests: `native test app`
-- Lint: `native check app --strict && scripts/gate-lint.sh`
-  (`native check` alone is not enough: this app has zero `.native` markup, so
-  no-emoji / design-tokens-only / a11y are enforced by `scripts/gate-lint.sh`)
+- Put pets in `~/.petdex/pets/<id>/` (or `~/.codex/pets/<id>/`) as `pet.json` + `spritesheet.webp`.
+- Register the Claude Code hooks from Settings > Agents > Claude Code.
+- Prebuilt portable packages are on [Releases](https://github.com/terasaki-8910/HitokoePet/releases). They are unsigned:
+  on macOS right-click > Open the first time; on Windows expect a SmartScreen prompt.
+
+## Limits and out of scope
+
+- Terminal focus is verified only for standalone console windows and WSL host windows on Windows. Windows Terminal has no API to select a specific tab from outside, and Wayland is out of scope.
+- `~/.claude/sessions/` is not a public API. If its schema changes, aggregation falls back to idle and only the hook path remains.
+- Not built: microphone input, STT, reading Claude's replies aloud, one pet per session.
+- No code signing or notarization. No upstream PR in v1.
+
+## Documents
+
+| File | Contents |
+| --- | --- |
+| `SPEC.md` | What is and isn't built, constraints (updated with findings after implementation) |
+| `ACCEPTANCE.md` | Pass/fail criteria and the commands that judge them |
+| `docs/prior-art.md` | Comparison of three prior implementations, with measurements |
+| `app/PROVENANCE.md` | How upstream is imported, and the record of this project's changes and investigations |
+| `task.md` | Open issues |
+
+The documents are written in Japanese.
+
+## License
+
+MIT (`LICENSE`). `app/` is a subtree of petdex-desktop-native and keeps the upstream license (MIT, Copyright (c) 2026 Crafter Station) in `app/LICENSE`.
+
+Diagram icons come from [Simple Icons](https://simpleicons.org/) (CC0) and [Lucide](https://lucide.dev/) (ISC). Logos are trademarks of their respective owners.
+The pet is fan art of Iroha Natsume from Blue Archive; rights to the character belong to the original rights holders.

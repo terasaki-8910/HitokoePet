@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1150" viewBox="0 0 960 1150" role="img" aria-labelledby="t d"><title id="t">HitokoePet 状態決定フロー</title><desc id="d">100ms ごとのタイマーで、フックの明示イベントを優先し、無ければセッション登録簿の集約結果を表示状態にし、状態が変わったときだけボイスを判定する流れ</desc><defs><marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8E8E8E"/></marker><marker id="ha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4E62EB"/></marker></defs><rect width="960" height="1150" rx="16" fill="#FFFFFF" stroke="#DCDCDC"/><text x="24" y="40" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="20" font-weight="700" fill="#1C1C1C" text-anchor="start">状態決定フロー（poll_tick）</text>
+<text x="24" y="63" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="13" font-weight="400" fill="#6A6A6A" text-anchor="start">フックの明示イベントを優先し、無ければ全セッションの集約結果を表示する。ボイスは状態が変わった瞬間だけ判定</text>
+<rect x="220" y="88" width="220" height="44" rx="22" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<g transform="translate(238 99) scale(0.9167)" fill="none" stroke="#3A3A3A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2" />
+  <line x1="12" x2="15" y1="14" y2="11" />
+  <circle cx="12" cy="14" r="8" /></g>
+<text x="340" y="115.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="middle">poll_tick（100ms ごと）</text>
+<path d="M330,132 L330,150" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<polygon points="330,150.0 480.0,196 330,242.0 180.0,196" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="330" y="192.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12.5" font-weight="600" fill="#1C1C1C" text-anchor="middle">表示時間（dwell）中？</text>
+<text x="330" y="208.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12.5" font-weight="400" fill="#6A6A6A" text-anchor="middle">直前のフックイベントを見せている間</text>
+<path d="M480,196 L580,196" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<text x="490" y="189" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start" paint-order="stroke" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round">はい</text>
+<rect x="580" y="174" width="290" height="44" rx="10" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="594" y="201" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">今の状態を保持して終了</text>
+<path d="M330,242 L330,270" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<text x="338" y="260" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start" paint-order="stroke" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round">いいえ</text>
+<polygon points="330,270.0 480.0,316 330,362.0 180.0,316" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="330" y="312.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12.5" font-weight="600" fill="#1C1C1C" text-anchor="middle">フックイベントが積まれている？</text>
+<text x="330" y="328.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12.5" font-weight="400" fill="#6A6A6A" text-anchor="middle">POST /state で届いたもの</text>
+<path d="M480,316 L580,316" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<text x="490" y="309" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start" paint-order="stroke" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round">はい</text>
+<rect x="580" y="282" width="290" height="68" rx="10" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="594" y="309" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">その状態にする</text>
+<text x="594" y="328" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">PreTool → running / review、PostTool → idle</text>
+<text x="594" y="345" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">Prompt → jumping、Stop → waving、通知 → waiting</text>
+<path d="M330,362 L330,390" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<text x="338" y="380" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start" paint-order="stroke" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round">いいえ</text>
+<polygon points="330,390.0 480.0,436 330,482.0 180.0,436" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="330" y="432.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12.5" font-weight="600" fill="#1C1C1C" text-anchor="middle">一過性の状態を表示中？</text>
+<text x="330" y="448.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12.5" font-weight="400" fill="#6A6A6A" text-anchor="middle">failed・review・jumping・waving</text>
+<path d="M480,436 L580,436" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<text x="490" y="429" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start" paint-order="stroke" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round">はい</text>
+<rect x="580" y="414" width="290" height="44" rx="10" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="594" y="441" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">idle に戻す</text>
+<path d="M330,482 L330,510" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<text x="338" y="500" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start" paint-order="stroke" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round">いいえ</text>
+<rect x="170" y="510" width="320" height="70" rx="10" fill="#FFFFFF" stroke="#4E62EB" stroke-width="1.6"/>
+<rect x="182" y="522" width="36" height="36" rx="8" fill="#4E62EB"/>
+<g transform="translate(189.56 529.56) scale(0.8700)" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+  <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+  <path d="M10 12a1 1 0 0 0-1 1v1a1 1 0 0 1-1 1 1 1 0 0 1 1 1v1a1 1 0 0 0 1 1" />
+  <path d="M14 18a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1 1 1 0 0 1-1-1v-1a1 1 0 0 0-1-1" /></g>
+<text x="230" y="537" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">セッション登録簿を走査</text>
+<rect x="445.0" y="520" width="35.0" height="18" rx="9" fill="#ECEFFD"/>
+<text x="462.5" y="532.6" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="10.5" font-weight="600" fill="#4E62EB" text-anchor="middle">追加</text>
+<text x="230" y="556" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">ネイティブは毎回、WSL は 20 回に 1 回</text>
+<text x="230" y="573" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">パースできないファイルは無視</text>
+<path d="M330,580 L330,600" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<rect x="170" y="600" width="320" height="70" rx="10" fill="#FFFFFF" stroke="#4E62EB" stroke-width="1.6"/>
+<rect x="182" y="612" width="36" height="36" rx="8" fill="#4E62EB"/>
+<g transform="translate(189.56 619.56) scale(0.8700)" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" />
+  <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" />
+  <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /></g>
+<text x="230" y="627" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">aggregate()</text>
+<rect x="445.0" y="610" width="35.0" height="18" rx="9" fill="#ECEFFD"/>
+<text x="462.5" y="622.6" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="10.5" font-weight="600" fill="#4E62EB" text-anchor="middle">追加</text>
+<text x="230" y="646" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">waiting &gt; busy &gt; idle</text>
+<text x="230" y="663" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">1 件も読めなければ idle</text>
+<path d="M330,670 L330,694" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<polygon points="330,694.0 480.0,736 330,778.0 180.0,736" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="330" y="740.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12.5" font-weight="600" fill="#1C1C1C" text-anchor="middle">前回の状態と違う？</text>
+<path d="M180,736 L60,736 L60,760" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<text x="170" y="729" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="end" paint-order="stroke" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round">いいえ</text>
+<rect x="12" y="760" width="96" height="30" rx="15" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="60.0" y="779.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="middle">何もしない</text>
+<path d="M480,736 L580,736" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<text x="490" y="729" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start" paint-order="stroke" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round">はい</text>
+<path d="M870,316 L900,316 L900,708" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<path d="M870,436 L900,436" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round"/>
+<rect x="580" y="708" width="340" height="60" rx="10" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<rect x="592" y="720" width="36" height="36" rx="8" fill="#F1F1F1"/>
+<g transform="translate(599.56 727.56) scale(0.8700)" fill="none" stroke="#3A3A3A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" />
+  <path d="M10 4v4" />
+  <path d="M2 8h20" />
+  <path d="M6 4v4" /></g>
+<text x="640" y="735" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">applyState（新しい状態）</text>
+<text x="640" y="754" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">アトラスの行とフレームタイマーを切り替え</text>
+<path d="M750,768 L750,794" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<polygon points="750,794.0 910.0,842 750,890.0 590.0,842" fill="#FFFFFF" stroke="#4E62EB" stroke-width="1.6"/>
+<text x="750" y="830.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12.5" font-weight="600" fill="#1C1C1C" text-anchor="middle">ボイスを鳴らす対象？</text>
+<text x="750" y="846.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12.5" font-weight="400" fill="#6A6A6A" text-anchor="middle">ON・ボイス付きペット</text>
+<text x="750" y="862.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12.5" font-weight="400" fill="#6A6A6A" text-anchor="middle">waiting / jumping / failed</text>
+<path d="M590,842 L390,842 L390,866" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<text x="580" y="835" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="end" paint-order="stroke" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round">いいえ</text>
+<rect x="342" y="866" width="96" height="30" rx="15" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="390.0" y="885.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="middle">鳴らさない</text>
+<path d="M750,890 L750,916" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<text x="758" y="908" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start" paint-order="stroke" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round">はい</text>
+<polygon points="750,916.0 910.0,962 750,1008.0 590.0,962" fill="#FFFFFF" stroke="#4E62EB" stroke-width="1.6"/>
+<text x="750" y="958.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12.5" font-weight="600" fill="#1C1C1C" text-anchor="middle">クールダウンを過ぎた？</text>
+<text x="750" y="974.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12.5" font-weight="400" fill="#6A6A6A" text-anchor="middle">既定 60 秒、waiting は毎回鳴らす</text>
+<path d="M590,962 L390,962 L390,986" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<text x="580" y="955" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="end" paint-order="stroke" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round">いいえ</text>
+<rect x="342" y="986" width="96" height="30" rx="15" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="390.0" y="1005.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="middle">鳴らさない</text>
+<path d="M750,1008 L750,1032" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<text x="758" y="1024" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start" paint-order="stroke" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round">はい</text>
+<rect x="580" y="1032" width="340" height="64" rx="10" fill="#FFFFFF" stroke="#4E62EB" stroke-width="1.6"/>
+<rect x="592" y="1044" width="36" height="36" rx="8" fill="#4E62EB"/>
+<g transform="translate(599.56 1051.56) scale(0.8700)" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" />
+  <path d="M16 9a5 5 0 0 1 0 6" />
+  <path d="M19.364 18.364a9 9 0 0 0 0-12.728" /></g>
+<text x="640" y="1059" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">台本の WAV から 1 つを選んで再生</text>
+<rect x="875.0" y="1042" width="35.0" height="18" rx="9" fill="#ECEFFD"/>
+<text x="892.5" y="1054.6" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="10.5" font-weight="600" fill="#4E62EB" text-anchor="middle">追加</text>
+<text x="640" y="1078" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">設定の音量を掛けて fx.playAudio</text>
+<rect x="24" y="880" width="270" height="128" rx="12" fill="#F7F7F7" stroke="#DCDCDC" stroke-width="1.2"/>
+<g transform="translate(38 894) scale(0.7500)" fill="none" stroke="#3A3A3A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" /></g>
+<text x="62" y="908" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="13" font-weight="600" fill="#1C1C1C" text-anchor="start">吹き出しは状態と独立</text>
+<text x="38" y="932" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">毎 tick、hook_server のメールボックス</text>
+<text x="38" y="949" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">から最新の吹き出しを取り出して表示。</text>
+<text x="38" y="966" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">dwell の判定より前に処理するので、</text>
+<text x="38" y="983" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">状態が保持中でも文言は更新される。</text>
+<rect x="24" y="1114" width="22" height="22" rx="6" fill="#4E62EB"/>
+<text x="54" y="1129.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">HitokoePet で追加した部品</text>
+<rect x="239.92000000000002" y="1114" width="22" height="22" rx="6" fill="#F1F1F1" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="269.92" y="1129.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">上流 petdex / Native SDK から継承（青字の行は追加・改変）</text></svg>

@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="568" viewBox="0 0 960 568" role="img" aria-labelledby="t d"><title id="t">HitokoePet 開発の進め方</title><desc id="d">仕様と受け入れ基準を人間のゲートで固め、実装はフィーチャごとの worktree と機械ゲートで回したパイプラインの図</desc><defs><marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8E8E8E"/></marker><marker id="ha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4E62EB"/></marker></defs><rect width="960" height="568" rx="16" fill="#FFFFFF" stroke="#DCDCDC"/><text x="24" y="40" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="20" font-weight="700" fill="#1C1C1C" text-anchor="start">開発の進め方</text>
+<text x="24" y="63" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="13" font-weight="400" fill="#6A6A6A" text-anchor="start">判断が要る所だけ人間のゲートにし、それ以外はテストと lint の機械ゲートで止める</text>
+<rect x="40" y="96" width="280" height="112" rx="10" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<circle cx="64" cy="122" r="12" fill="#3A3A3A"/>
+<text x="64" y="126.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="700" fill="#FFFFFF" text-anchor="middle">1</text>
+<text x="86" y="127" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">仕様を決める</text>
+<text x="306" y="127" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,monospace" font-size="11" font-weight="400" fill="#6A6A6A" text-anchor="end">intake</text>
+<text x="58" y="156" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">選択肢から 1 つずつ決める</text>
+<text x="58" y="174" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">SPEC.md / ACCEPTANCE.md</text>
+<rect x="225.5" y="180" width="82.5" height="20" rx="10" fill="#ECEFFD"/>
+<g transform="translate(233.5 183) scale(0.5833)" fill="none" stroke="#4E62EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+  <circle cx="12" cy="7" r="4" /></g>
+<text x="276.75" y="194" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="10.5" font-weight="600" fill="#4E62EB" text-anchor="middle">人のゲート</text>
+<text x="58" y="195" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="10.5" font-weight="400" fill="#6A6A6A" text-anchor="start">モデル: Opus</text>
+<path d="M320,152.0 L356,152.0" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<rect x="356" y="96" width="280" height="112" rx="10" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<circle cx="380" cy="122" r="12" fill="#3A3A3A"/>
+<text x="380" y="126.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="700" fill="#FFFFFF" text-anchor="middle">2</text>
+<text x="402" y="127" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">先にテストを書く</text>
+<text x="622" y="127" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,monospace" font-size="11" font-weight="400" fill="#6A6A6A" text-anchor="end">criteria</text>
+<text x="374" y="156" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">合否を機械判定できる形に</text>
+<text x="374" y="174" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">落ちるテスト + lint</text>
+<rect x="541.5" y="180" width="82.5" height="20" rx="10" fill="#ECEFFD"/>
+<g transform="translate(549.5 183) scale(0.5833)" fill="none" stroke="#4E62EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+  <circle cx="12" cy="7" r="4" /></g>
+<text x="592.75" y="194" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="10.5" font-weight="600" fill="#4E62EB" text-anchor="middle">人のゲート</text>
+<text x="374" y="195" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="10.5" font-weight="400" fill="#6A6A6A" text-anchor="start">モデル: Opus</text>
+<path d="M636,152.0 L672,152.0" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<rect x="672" y="96" width="280" height="112" rx="10" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<circle cx="696" cy="122" r="12" fill="#3A3A3A"/>
+<text x="696" y="126.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="700" fill="#FFFFFF" text-anchor="middle">3</text>
+<text x="718" y="127" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">フィーチャに分解</text>
+<text x="938" y="127" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,monospace" font-size="11" font-weight="400" fill="#6A6A6A" text-anchor="end">plan</text>
+<text x="690" y="156" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">互いに独立した単位へ</text>
+<text x="690" y="174" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">PLAN.md</text>
+<text x="690" y="195" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="10.5" font-weight="400" fill="#6A6A6A" text-anchor="start">モデル: Opus</text>
+<rect x="40" y="252" width="280" height="112" rx="10" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<circle cx="64" cy="278" r="12" fill="#3A3A3A"/>
+<text x="64" y="282.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="700" fill="#FFFFFF" text-anchor="middle">4</text>
+<text x="86" y="283" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">worktree ごとに実装</text>
+<text x="306" y="283" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,monospace" font-size="11" font-weight="400" fill="#6A6A6A" text-anchor="end">build</text>
+<text x="58" y="312" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">ゲートに落ちたら修復</text>
+<text x="58" y="330" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">回数上限つきのループ</text>
+<text x="58" y="351" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="10.5" font-weight="400" fill="#6A6A6A" text-anchor="start">モデル: Sonnet</text>
+<path d="M320,308.0 L356,308.0" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<rect x="356" y="252" width="280" height="112" rx="10" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<circle cx="380" cy="278" r="12" fill="#3A3A3A"/>
+<text x="380" y="282.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="700" fill="#FFFFFF" text-anchor="middle">5</text>
+<text x="402" y="283" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">受け入れて merge</text>
+<text x="622" y="283" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,monospace" font-size="11" font-weight="400" fill="#6A6A6A" text-anchor="end">accept</text>
+<text x="374" y="312" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">緑のゲート + 差分 + 実機で目視</text>
+<text x="374" y="330" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">ローカルで --no-ff merge</text>
+<rect x="541.5" y="336" width="82.5" height="20" rx="10" fill="#ECEFFD"/>
+<g transform="translate(549.5 339) scale(0.5833)" fill="none" stroke="#4E62EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+  <circle cx="12" cy="7" r="4" /></g>
+<text x="592.75" y="350" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="10.5" font-weight="600" fill="#4E62EB" text-anchor="middle">人のゲート</text>
+<path d="M636,308.0 L672,308.0" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<rect x="672" y="252" width="280" height="112" rx="10" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2" stroke-dasharray="5 4"/>
+<circle cx="696" cy="278" r="12" fill="#3A3A3A"/>
+<text x="696" y="282.5" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="700" fill="#FFFFFF" text-anchor="middle">6</text>
+<text x="718" y="283" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="600" fill="#1C1C1C" text-anchor="start">実機フィードバック</text>
+<text x="938" y="283" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,monospace" font-size="11" font-weight="400" fill="#6A6A6A" text-anchor="end">feedback</text>
+<text x="690" y="312" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">症状から根本原因を追う</text>
+<text x="690" y="330" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">対話セッションで修正</text>
+<rect x="857.5" y="336" width="82.5" height="20" rx="10" fill="#ECEFFD"/>
+<g transform="translate(865.5 339) scale(0.5833)" fill="none" stroke="#4E62EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+  <circle cx="12" cy="7" r="4" /></g>
+<text x="908.75" y="350" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="10.5" font-weight="600" fill="#4E62EB" text-anchor="middle">人のゲート</text>
+<path d="M812.0,208 L812.0,230.0 L180.0,230.0 L180.0,252" fill="none" stroke="#8E8E8E" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#h)"/>
+<rect x="24" y="392" width="912" height="132" rx="14" fill="#F7F7F7" stroke="#DCDCDC" stroke-width="1.2"/>
+<g transform="translate(38 403) scale(0.7500)" fill="none" stroke="#3A3A3A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+  <path d="m9 12 2 2 4-4" /></g>
+<text x="64" y="417" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="13" font-weight="600" fill="#1C1C1C" text-anchor="start">機械ゲート（build 段階でフィーチャごとに実行）</text>
+<rect x="40" y="434" width="432" height="34" rx="8" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="52" y="456" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,monospace" font-size="12" font-weight="600" fill="#1C1C1C" text-anchor="start">native test app</text>
+<text x="173.5" y="456" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start">Zig テスト 25 件（純粋関数に切り出して検査）</text>
+<rect x="488" y="434" width="432" height="34" rx="8" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="500" y="456" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,monospace" font-size="12" font-weight="600" fill="#1C1C1C" text-anchor="start">native check app --strict</text>
+<text x="694.5" y="456" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start">マニフェストとコアの検査</text>
+<rect x="40" y="476" width="432" height="34" rx="8" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="52" y="498" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,monospace" font-size="12" font-weight="600" fill="#1C1C1C" text-anchor="start">scripts/gate-lint.sh</text>
+<text x="210.0" y="498" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start">絵文字禁止・色はトークンのみ・a11y</text>
+<rect x="488" y="476" width="432" height="34" rx="8" fill="#FFFFFF" stroke="#CFCFCF" stroke-width="1.2"/>
+<text x="500" y="498" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,monospace" font-size="12" font-weight="600" fill="#1C1C1C" text-anchor="start">voice/test.sh</text>
+<text x="606.9" y="498" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="11.5" font-weight="400" fill="#6A6A6A" text-anchor="start">発火条件・探索順・ロック・フォールバック 15 件</text>
+<text x="24" y="548" font-family="'Segoe UI','Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic UI',Meiryo,sans-serif" font-size="12" font-weight="400" fill="#6A6A6A" text-anchor="start">パイプラインで回したのは intake〜plan と最初の 2 フィーチャ（pure-core / voice-notify）まで。以降の実機フィードバックは対話で進めた。</text></svg>
