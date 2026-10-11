@@ -19,11 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-`app/` is a subtree import of petdex-desktop-native (see app/PROVENANCE.md)
-and carries its own upstream license at app/LICENSE (MIT, Copyright (c) 2026
-Crafter Station) — that notice must not be removed. This top-level license
-covers the rest of this repository (patches/, scripts/, docs, and
-HitokoePet-specific code not part of the upstream subtree).
