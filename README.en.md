@@ -10,9 +10,10 @@ One desktop pet stands in for every Claude Code session and tells you, with a sp
 Compatible with the Codex pet atlas format.
 
 <p align="center">
-  <img src="docs/images/hero.png" width="380" alt="A speech bubble reading 'Waiting for you…' above the pet">
+  <img src="docs/images/demo.gif" width="804" alt="The pet shows bubbles over a terminal: running tests, waiting, tapping the bubble brings the terminal back after switching windows, the pet is grabbed and moved, then a done bubble">
 </p>
-<p align="center"><sub>The bubble is a real render from the app (<code>native automate screenshot</code>). The pet is the waiting row of the same atlas, placed exactly where the app places it.</sub></p>
+<p align="center"><sub>Recorded on a real Windows 11 desktop. Prompt → tests run → waiting → switch to another window → tap the bubble and the original terminal comes back → grab and move the pet → done.<br>
+Bubbles and states are injected in the same format the hooks send; the terminal output is a real <code>native test app</code> run. The cursor is drawn at its recorded real positions.</sub></p>
 
 Running Claude Code in several projects at once makes it easy to miss which session is blocked on a permission prompt.
 Instead of one notification per session, HitokoePet folds everything into a single pet: if any session is waiting, the pet looks like it is waiting,
@@ -25,7 +26,7 @@ with the missing pieces added on top. The blue components in the diagrams and th
 
 | Feature | What it does | Status |
 | --- | --- | --- |
-| Multi-session aggregation | Reads `~/.claude/sessions/*.json` every 100 ms and folds them into one state by priority `waiting > busy > idle`. WSL sessions are scanned too | Verified on Windows + WSL (4 sessions detected at once: 1 native + 3 WSL). 8 concurrent sessions not measured |
+| Multi-session aggregation | Reads `~/.claude/sessions/*.json` every 100 ms and folds them into one state by priority `waiting > busy > idle`. WSL sessions are scanned too | Verified on Windows + WSL (4 sessions detected at once: 1 native + 3 WSL). 8 concurrent sessions not measured. Picks up leftovers of dead sessions (see Known bugs) |
 | Tap the bubble to jump to the terminal | The hook captures its own terminal id (HWND / tty) the moment it starts and attaches it to the bubble; tapping focuses that terminal | Verified with standalone console windows and WSL host windows on Windows. macOS (iTerm2) is code only |
 | Grab and throw | Grab the character itself; the held pose stays while the button is down, then throw physics on release | Verified on Windows. macOS is upstream code. Window moving on Linux (X11) not implemented |
 | Transparency | Per-pixel alpha via `UpdateLayeredWindow` (a patch to the SDK fork) | Verified on Windows |
@@ -135,6 +136,13 @@ native test app
 - Register the Claude Code hooks from Settings > Agents > Claude Code.
 - Prebuilt portable packages are on [Releases](https://github.com/terasaki-8910/HitokoePet/releases). They are unsigned:
   on macOS right-click > Open the first time; on Windows expect a SmartScreen prompt.
+
+## Known bugs
+
+- **Leftover files from dead sessions keep counting.** Aggregation reads only `status` from `~/.claude/sessions/*.json` and never checks whether the process is alive.
+  If a session dies without cleaning up (the WSL side of the dev machine still had files from July and September), its `waiting` / `busy` leaks into the display.
+- **The bubble stays behind while dragging.** It returns above the pet on release (visible in the GIF above).
+- **Setting `PETDEX_PET` skips the settings file.** The app treats it as a first launch and overwrites the settings file with defaults right after starting.
 
 ## Limits and out of scope
 

@@ -3,6 +3,22 @@
 パイプライン正式ドキュメント（SPEC.md/ACCEPTANCE.md/PLAN.md）の外で見つかった、
 後で確認・着手する項目のメモ。優先度は都度judgeする。
 
+## README 用 GIF の撮影中に見つかった不具合（2026-10-12、未修正）
+
+- **終了済みセッションのファイルを拾い続ける**: `aggregate()` は `status` だけを見て、pid が
+  生きているかを確かめない。開発機の WSL 側 `~/.claude/sessions/` に 7 月・9 月の
+  `1526.json`（busy）/ `1647.json`（waiting）が残っており、ペットはこれを拾う。WSL 側は
+  20 tick に 1 回だけ走査するので、約 2 秒ごとに waiting へ切り替わり、waiting はボイスの
+  クールダウン対象外のため、そのたびに鳴る可能性がある。対策候補: ネイティブ側は
+  `OpenProcess` で生存確認、WSL 側は `procStart` / `updatedAt` との突き合わせか、
+  `wsl.exe` 経由の生存確認を間引いて行う。
+- **ドラッグ中に吹き出しが追従しない**: 離すとペットの上に戻る。`.physics_tick` は投擲中の
+  分岐では `syncBubbleWindow` を呼ぶが、ドラッグ中の分岐では呼んでいない（`.frame_clock` 側は
+  `dragging or throwing` の間は早期 return する）。ドラッグ中の分岐にも同じ呼び出しを足せば直る見込み。
+- **`PETDEX_PET` を指定すると設定ファイルを読まない**: `resolveInitialPet` が
+  `env_wanted_pet` のときに設定の読み込みを丸ごと飛ばす。`agents_prompted` も既定値
+  （false）になるため、起動直後の `saveSettings` で設定ファイルが既定値に上書きされる。
+
 ## 【重大インシデント記録】petdex.dev の同名別キャラでユーザーの実キャラを上書き破壊・復旧済み（2026-08-01）
 
 スプライト縁ノイズ調査中、petdex.dev の公開カタログから同名 "iroha"（実際は
