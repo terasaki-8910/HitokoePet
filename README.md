@@ -10,9 +10,10 @@ Claude Code の全セッションを 1 匹のデスクトップペットが代�
 Codex pet のアトラス規格と互換。
 
 <p align="center">
-  <img src="docs/images/hero.png" width="380" alt="ペットの上に「READMEにアーキテクチャ図を追加して / Waiting for you…」という吹き出しが出ている">
+  <img src="docs/images/demo.gif" width="804" alt="端末の上でペットが吹き出しを出す。テスト実行中、確認待ち、別の窓に切り替えた後に吹き出しを押すと端末が前面に戻り、ペットをつまんで動かし、最後に完了の吹き出しが出る">
 </p>
-<p align="center"><sub>吹き出しはアプリの実レンダリング（<code>native automate screenshot</code>）。ペットは同じアトラスの waiting 行を、アプリと同じ配置で重ねたもの。</sub></p>
+<p align="center"><sub>Windows 11 の実デスクトップで撮影。指示 → テスト実行 → 確認待ち → 別の窓に切り替える → 吹き出しを押すと元の端末が前面に戻る → つまんで動かす → 完了。<br>
+吹き出しと状態はフックと同じ形式で流し込み、端末の出力は実際の <code>native test app</code>。カーソルは撮影時の実座標に描き足したもの。</sub></p>
 
 複数のプロジェクトで Claude Code を並行して回すと、どのセッションが許可待ちで止まっているかを見落とす。
 HitokoePet はセッションの数だけ通知を増やすのではなく、全体を 1 匹に畳む。許可待ちがあれば 1 匹が待ち顔になり、
@@ -25,7 +26,7 @@ HitokoePet はセッションの数だけ通知を増やすのではなく、全
 
 | 機能 | 内容 | 確認状況 |
 | --- | --- | --- |
-| 多セッション集約 | `~/.claude/sessions/*.json` を 100ms ごとに読み、`waiting > busy > idle` の優先度で 1 状態に畳む。WSL 側のセッションも走査 | Windows + WSL 実機（ネイティブ 1 + WSL 3 の計 4 セッションを同時検知）。8 並走は未計測 |
+| 多セッション集約 | `~/.claude/sessions/*.json` を 100ms ごとに読み、`waiting > busy > idle` の優先度で 1 状態に畳む。WSL 側のセッションも走査 | Windows + WSL 実機（ネイティブ 1 + WSL 3 の計 4 セッションを同時検知）。8 並走は未計測。終了済みセッションの残骸を拾う不具合あり（下の「既知の不具合」） |
 | 吹き出しタップで端末へ | フックが起動した瞬間に自分の端末 ID（HWND / tty）を取得して吹き出しに添付。タップでその端末を前面に出す | Windows の個別コンソール窓と WSL ホスト窓で実機確認。macOS（iTerm2）はコードのみ |
 | つまみ・投擲 | キャラ本体をつまんで動かせる。押している間はつまみ状態を保持し、離すと投擲物理 | Windows 実機。macOS は上流実装。Linux（X11）の窓移動は未実装 |
 | 透過 | `UpdateLayeredWindow` による per-pixel α 合成（SDK フォークへのパッチ） | Windows 実機 |
@@ -138,6 +139,13 @@ native test app
 - Claude Code へのフック登録は設定画面の Agents > Claude Code から行う。
 - ビルド済みのポータブル版は [Releases](https://github.com/terasaki-8910/HitokoePet/releases) にある。署名していないので、
   macOS は初回に右クリック > 開く、Windows は SmartScreen の確認が出る。
+
+## 既知の不具合
+
+- **終了したセッションのファイルが残ると拾い続ける。** 集約は `~/.claude/sessions/*.json` の `status` だけを見ており、プロセスが生きているかを確かめていない。
+  異常終了でファイルが残ると（この開発機の WSL 側には 7 月・9 月のファイルが残っていた）、その `waiting` / `busy` が表示に混ざる。
+- **ドラッグ中は吹き出しが元の位置に残る。** 離すとペットの上に戻る（上の GIF でも見える）。
+- **環境変数 `PETDEX_PET` を指定すると設定ファイルを読まない。** 初回起動として扱われ、起動直後に設定ファイルを既定値で上書きする。
 
 ## 制約とスコープ外
 
